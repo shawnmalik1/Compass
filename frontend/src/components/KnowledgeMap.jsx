@@ -5,7 +5,7 @@ import Tooltip from "./Tooltip";
 const WIDTH = 900;
 const HEIGHT = 700;
 
-// Helper: normalize coords to viewport
+// Normalize coords to viewport
 function normalizePositions(nodes) {
   if (!nodes || nodes.length === 0) return [];
   const xs = nodes.map((n) => n.x);
@@ -13,8 +13,8 @@ function normalizePositions(nodes) {
   const xExtent = d3.extent(xs);
   const yExtent = d3.extent(ys);
 
-  const xScale = d3.scaleLinear().domain(xExtent).range([50, WIDTH - 50]);
-  const yScale = d3.scaleLinear().domain(yExtent).range([50, HEIGHT - 50]);
+  const xScale = d3.scaleLinear().domain(xExtent).range([80, WIDTH - 80]);
+  const yScale = d3.scaleLinear().domain(yExtent).range([80, HEIGHT - 80]);
 
   return nodes.map((n) => ({
     ...n,
@@ -57,12 +57,30 @@ function KnowledgeMap({
         ref={svgRef}
         width={WIDTH}
         height={HEIGHT}
-        style={{ background: "#050816", borderRadius: "12px" }}
+        style={{ background: "#020617", borderRadius: "24px" }}
       >
+        <defs>
+          <radialGradient id="clusterGradient" cx="50%" cy="35%" r="65%">
+            <stop offset="0%" stopColor="#a855f7" stopOpacity="0.95" />
+            <stop offset="45%" stopColor="#6366f1" stopOpacity="0.9" />
+            <stop offset="100%" stopColor="#0f172a" stopOpacity="0.98" />
+          </radialGradient>
+          <filter id="clusterGlow">
+            <feGaussianBlur stdDeviation="6" result="coloredBlur" />
+            <feMerge>
+              <feMergeNode in="coloredBlur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+
         <g transform={transform.toString()}>
+          {/* Topic bubbles */}
           {clusterNodes.map((node) => {
             const isSelected =
               selectedCluster && node.id === selectedCluster.cluster_id;
+            const labelLines = node.label.split(" / ").slice(0, 2);
+
             return (
               <g
                 key={node.id}
@@ -80,27 +98,33 @@ function KnowledgeMap({
                 <circle
                   r={node.size}
                   style={{
-                    fill: isSelected ? "#3b82f6" : "#6366f1",
-                    opacity: 0.8,
-                    stroke: "#e5e7eb",
-                    strokeWidth: isSelected ? 2 : 1,
+                    fill: "url(#clusterGradient)",
+                    opacity: isSelected ? 1 : 0.85,
+                    stroke: isSelected ? "#e5e7eb" : "#1d4ed8",
+                    strokeWidth: isSelected ? 2.4 : 1.4,
+                    filter: "url(#clusterGlow)",
                   }}
                 />
                 <text
                   textAnchor="middle"
-                  y={5}
+                  y={-2}
                   style={{
                     fontSize: 10,
                     fill: "#e5e7eb",
                     pointerEvents: "none",
                   }}
                 >
-                  {node.label.slice(0, 22)}
+                  {labelLines.map((line, i) => (
+                    <tspan key={i} x={0} dy={i === 0 ? 0 : 11}>
+                      {line.slice(0, 18)}
+                    </tspan>
+                  ))}
                 </text>
               </g>
             );
           })}
 
+          {/* Article points in selected cluster */}
           {articleNodes.length > 0 &&
             articleNodes.map((a) => (
               <circle
@@ -117,7 +141,7 @@ function KnowledgeMap({
                 onMouseLeave={() => setHoveredNode(null)}
                 style={{
                   fill: "#f97316",
-                  opacity: 0.9,
+                  opacity: 0.95,
                   cursor: "default",
                 }}
               />

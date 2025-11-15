@@ -10,7 +10,9 @@ function Sidebar({
   searchResults,
   uploadResult,
   onSearch,
+  onClearSearch,
   onUpload,
+  onClearUpload,
   onClusterClick,
 }) {
   const isClusterHovered = hoveredNode && hoveredNode.type === "cluster";
@@ -22,7 +24,7 @@ function Sidebar({
         Turn scattered NYT articles into an interactive, zoomable map of topics.
       </p>
 
-      <SearchBar onSearch={onSearch} />
+      <SearchBar onSearch={onSearch} onClear={onClearSearch} />
 
       {searchResults && (
         <ArticleList
@@ -38,7 +40,7 @@ function Sidebar({
         />
       )}
 
-      {isClusterHovered && !selectedCluster && (
+      {isClusterHovered && !selectedCluster && !searchResults && (
         <div className="hover-info">
           <h3>Topic preview</h3>
           <div className="hover-label">{hoveredNode.label}</div>
@@ -50,6 +52,7 @@ function Sidebar({
 
       <UploadPanel
         onUpload={onUpload}
+        onClear={onClearUpload}
         uploadResult={uploadResult}
         onClusterClick={onClusterClick}
       />

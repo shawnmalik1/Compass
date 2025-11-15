@@ -5,6 +5,7 @@ from typing import List, Optional
 
 import numpy as np
 import joblib
+import ast
 
 from sentence_transformers import SentenceTransformer
 
@@ -16,18 +17,16 @@ app = FastAPI(title="Granular Knowledge Map API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],   # tighten for prod
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# --------- helpers ---------
 def _clean_field(value):
-    """Convert NaN / nones to None, everything else to str."""
+    """Convert NaN / Nones to None, everything else to str."""
     if value is None:
         return None
-    # handle numpy / float NaNs
     try:
         if isinstance(value, float) and np.isnan(value):
             return None
@@ -35,8 +34,30 @@ def _clean_field(value):
         pass
     return str(value)
 
+def _clean_headline(value):
+    """Headline sometimes comes as a dict-like structure from NYT metadata."""
+    # dict case
+    if isinstance(value, dict):
+        main = value.get("main") or value.get("print_headline") or ""
+        return str(main) if main is not None else ""
 
-# Load index at startup
+    # string that looks like a dict with 'main'
+    if isinstance(value, str) and value.strip().startswith("{") and "main" in value:
+        try:
+            parsed = ast.literal_eval(value)
+            if isinstance(parsed, dict):
+                main = parsed.get("main") or parsed.get("print_headline") or ""
+                if main:
+                    return str(main)
+        except Exception:
+            pass
+
+    cleaned = _clean_field(value)
+    return cleaned or ""
+
+
+# ------- load index -------
+
 index = joblib.load(INDEX_PATH)
 articles = index["articles"]
 embeddings = index["embeddings"]
@@ -55,7 +76,7 @@ class MapNode(BaseModel):
     y: float
     size: float
     count: int
-    level: int  # 0 = cluster, 1 = article
+    level: int
 
 
 class ArticleSummary(BaseModel):
@@ -99,7 +120,6 @@ def cosine_sim(a, b):
 
 @app.get("/api/map", response_model=MapResponse)
 def get_map():
-    # Aggregate clusters
     unique_clusters = np.unique(cluster_ids)
     nodes = []
 
@@ -140,7 +160,7 @@ def get_cluster(cluster_id: int):
         arts.append(
             ArticleSummary(
                 id=int(art["id"]),
-                headline=_clean_field(art["headline"]) or "",
+                headline=_clean_headline(art.get("headline")),
                 abstract=_clean_field(art.get("abstract")),
                 pub_date=_clean_field(art.get("pub_date")),
                 section=_clean_field(art.get("section")),
@@ -160,7 +180,6 @@ def get_cluster(cluster_id: int):
 
 @app.get("/api/search", response_model=SearchResults)
 def search_articles(q: str, k: int = 20):
-    # Embed query
     q_vec = embed_model.encode([q], normalize_embeddings=True)[0]
     sims = emb_norm @ q_vec
     top_idx = np.argsort(-sims)[:k]
@@ -173,7 +192,7 @@ def search_articles(q: str, k: int = 20):
         results.append(
             ArticleSummary(
                 id=int(art["id"]),
-                headline=_clean_field(art["headline"]) or "",
+                headline=_clean_headline(art.get("headline")),
                 abstract=_clean_field(art.get("abstract")),
                 pub_date=_clean_field(art.get("pub_date")),
                 section=_clean_field(art.get("section")),
@@ -190,12 +209,10 @@ def search_articles(q: str, k: int = 20):
 
 @app.post("/api/upload", response_model=UploadResult)
 async def upload_text(text: str = Form(...)):
-    # text is passed as plain text form field
     q_vec = embed_model.encode([text], normalize_embeddings=True)[0]
     sims = emb_norm @ q_vec
     top_idx = np.argsort(-sims)[:10]
 
-    # Determine closest cluster from nearest neighbors
     neighbor_clusters = cluster_ids[top_idx]
     unique, counts = np.unique(neighbor_clusters, return_counts=True)
     best_cluster = int(unique[np.argmax(counts)])
@@ -210,7 +227,7 @@ async def upload_text(text: str = Form(...)):
         neighbors.append(
             ArticleSummary(
                 id=int(art["id"]),
-                headline=_clean_field(art["headline"]) or "",
+                headline=_clean_headline(art.get("headline")),
                 abstract=_clean_field(art.get("abstract")),
                 pub_date=_clean_field(art.get("pub_date")),
                 section=_clean_field(art.get("section")),

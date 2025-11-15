@@ -32,7 +32,7 @@ function App() {
       const detail = await fetchCluster(clusterId);
       setSelectedCluster(detail);
       setClusterArticles(detail.articles);
-      setSearchResults(null);
+      // searchResults stays; user can clear it via Clear button
     } catch (err) {
       console.error(err);
     }
@@ -43,10 +43,14 @@ function App() {
     try {
       const res = await searchArticles(query.trim());
       setSearchResults(res);
-      setSelectedCluster(null);
+      // keep selectedCluster so that clearing search restores the cluster view
     } catch (err) {
       console.error(err);
     }
+  }
+
+  function handleClearSearch() {
+    setSearchResults(null);
   }
 
   async function handleUpload(text) {
@@ -61,6 +65,10 @@ function App() {
     } catch (err) {
       console.error(err);
     }
+  }
+
+  function handleClearUpload() {
+    setUploadResult(null);
   }
 
   return (
@@ -85,7 +93,9 @@ function App() {
         searchResults={searchResults}
         uploadResult={uploadResult}
         onSearch={handleSearch}
+        onClearSearch={handleClearSearch}
         onUpload={handleUpload}
+        onClearUpload={handleClearUpload}
         onClusterClick={handleClusterClick}
       />
     </div>
