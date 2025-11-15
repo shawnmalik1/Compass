@@ -26,8 +26,8 @@ function UploadPanel({
     <div className="upload-panel">
       <h3>Search Knowledge Map</h3>
       <p className="small">
-        Paste an article, reading, essay, or enter keywords. We will show where
-        it lands in the knowledge map.
+        Paste an article, idea, or essay, or enter keywords. We will show where it lands in the
+        knowledge map.
       </p>
       <form onSubmit={handleSubmit}>
         <textarea

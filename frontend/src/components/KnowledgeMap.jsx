@@ -134,11 +134,25 @@ function KnowledgeMap({
   const svgRef = useRef(null);
   const [transform, setTransform] = useState(d3.zoomIdentity);
   const [zoomK, setZoomK] = useState(1);
+  const [customPositions, setCustomPositions] = useState({ coarse: {}, fine: {} });
+  const [dragState, setDragState] = useState(null);
+  const dragMovedRef = useRef(false);
+  const draggingRef = useRef(false);
+  const suppressClickRef = useRef(false);
 
   const scales = useMemo(() => createScales(bounds), [bounds]);
-  const coarseNodes = useMemo(
+  const baseCoarseNodes = useMemo(
     () => normalizeWithScales(coarseClusters || [], scales),
     [coarseClusters, scales]
+  );
+  const coarseNodes = useMemo(
+    () =>
+      baseCoarseNodes.map((node) =>
+        customPositions.coarse[node.id]
+          ? { ...node, ...customPositions.coarse[node.id] }
+          : node
+      ),
+    [baseCoarseNodes, customPositions]
   );
   const fineNodes = useMemo(
     () => normalizeWithScales(fineClusters || [], scales),
@@ -196,26 +210,45 @@ function KnowledgeMap({
     () => explodeFineNodes(visibleFineNodes, focusCoarseNode),
     [visibleFineNodes, focusCoarseNode]
   );
+  const fineNodesWithCustom = useMemo(
+    () =>
+      explodedFineNodes.map((node) =>
+        customPositions.fine[node.id] ? { ...node, ...customPositions.fine[node.id] } : node
+      ),
+    [explodedFineNodes, customPositions]
+  );
 
   const showFineNodes =
     activeCoarseId != null &&
     focusCoarseNode &&
-    explodedFineNodes &&
-    explodedFineNodes.length > 0;
+    fineNodesWithCustom &&
+    fineNodesWithCustom.length > 0;
   const showArticleDots =
     selectedFineCluster && fineClusterArticles && fineClusterArticles.length > 0;
 
   useEffect(() => {
+    if (!svgRef.current) return undefined;
     const svg = d3.select(svgRef.current);
     const zoom = d3
       .zoom()
       .scaleExtent([0.4, 8])
+      .filter((event) => {
+        if (!event) return false;
+        if (event.type === "wheel") return true;
+        const target = event.target;
+        const isDraggable =
+          target && typeof target.closest === "function" && target.closest("[data-draggable='true']");
+        return !isDraggable && !draggingRef.current && event.button === 0;
+      })
       .on("zoom", (event) => {
         setTransform(event.transform);
         setZoomK(event.transform.k);
       });
 
     svg.call(zoom);
+    return () => {
+      svg.on(".zoom", null);
+    };
   }, []);
 
   useEffect(() => {
@@ -224,7 +257,59 @@ function KnowledgeMap({
     }
   }, [zoomK, activeCoarseId, onBackgroundClick]);
 
+  function startDrag(event, node, type) {
+    if (!svgRef.current) return;
+    event.stopPropagation();
+    event.preventDefault();
+    dragMovedRef.current = false;
+    suppressClickRef.current = false;
+    draggingRef.current = true;
+
+    const pointer = d3.pointer(event.nativeEvent, svgRef.current);
+    const [localX, localY] = transform.invert(pointer);
+    setDragState({
+      type,
+      id: node.id,
+      offsetX: localX - node.xNorm,
+      offsetY: localY - node.yNorm,
+    });
+  }
+
+  function handleMouseMove(event) {
+    if (!dragState || !svgRef.current) return;
+    event.preventDefault();
+    dragMovedRef.current = true;
+    const pointer = d3.pointer(event.nativeEvent, svgRef.current);
+    const [localX, localY] = transform.invert(pointer);
+    setCustomPositions((prev) => {
+      const key = dragState.type === "coarse" ? "coarse" : "fine";
+      return {
+        ...prev,
+        [key]: {
+          ...prev[key],
+          [dragState.id]: {
+            xNorm: localX - dragState.offsetX,
+            yNorm: localY - dragState.offsetY,
+          },
+        },
+      };
+    });
+  }
+
+  function stopDrag() {
+    if (!dragState) return;
+    setDragState(null);
+    suppressClickRef.current = dragMovedRef.current;
+    dragMovedRef.current = false;
+    draggingRef.current = false;
+  }
+
   function handleSvgClick() {
+    if (dragState) return;
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      return;
+    }
     if (onBackgroundClick) onBackgroundClick();
   }
 
@@ -236,6 +321,9 @@ function KnowledgeMap({
         height={HEIGHT}
         style={{ background: "#020617", borderRadius: "24px" }}
         onClick={handleSvgClick}
+        onMouseMove={handleMouseMove}
+        onMouseUp={stopDrag}
+        onMouseLeave={stopDrag}
       >
         <defs>
           <filter id="clusterGlow">
@@ -264,10 +352,12 @@ function KnowledgeMap({
               <g
                 key={node.id}
                 transform={`translate(${node.xNorm}, ${node.yNorm})`}
+                data-draggable="true"
                 onClick={(e) => {
                   e.stopPropagation();
                   onCoarseClick(node.id);
                 }}
+                onMouseDown={(e) => startDrag(e, node, "coarse")}
                 onMouseEnter={() =>
                   setHoveredNode({
                     type: "coarse",
@@ -324,7 +414,7 @@ function KnowledgeMap({
           })}
 
           {showFineNodes &&
-            explodedFineNodes.map((node) => {
+            fineNodesWithCustom.map((node) => {
               const color = getTopicColor(node.label);
               const isSelected =
                 selectedFineCluster && node.id === selectedFineCluster.fine_cluster_id;
@@ -332,10 +422,12 @@ function KnowledgeMap({
                 <g
                   key={node.id}
                   transform={`translate(${node.xNorm}, ${node.yNorm})`}
+                  data-draggable="true"
                   onClick={(e) => {
                     e.stopPropagation();
                     onFineClick(node.id);
                   }}
+                  onMouseDown={(e) => startDrag(e, node, "fine")}
                   onMouseEnter={() =>
                     setHoveredNode({
                       type: "fine",

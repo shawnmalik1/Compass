@@ -11,6 +11,131 @@ body {
   padding: 0;
 }
 
+.landing-page {
+  position: relative;
+  min-height: 100vh;
+  background: radial-gradient(circle at 20% 20%, rgba(56, 189, 248, 0.15), transparent 45%),
+    radial-gradient(circle at 80% 0%, rgba(244, 114, 182, 0.15), transparent 40%),
+    #010513;
+  color: #f8fafc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+}
+
+.landing-glow {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle, rgba(79, 70, 229, 0.15), transparent 65%);
+  filter: blur(60px);
+  pointer-events: none;
+}
+
+.landing-content {
+  position: relative;
+  max-width: 880px;
+  width: 100%;
+  background: rgba(2, 6, 23, 0.85);
+  border: 1px solid rgba(148, 163, 184, 0.1);
+  border-radius: 28px;
+  padding: 48px;
+  box-shadow: 0 25px 80px rgba(15, 23, 42, 0.7);
+}
+
+.landing-hero .eyebrow {
+  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0.2em;
+  opacity: 0.7;
+  margin-bottom: 8px;
+}
+
+.landing-hero h1 {
+  font-size: clamp(32px, 5vw, 54px);
+  margin: 0;
+  line-height: 1.1;
+}
+
+.landing-hero .subtitle {
+  font-size: 16px;
+  opacity: 0.75;
+  margin: 16px 0 24px 0;
+  max-width: 620px;
+}
+
+.hero-stats {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.hero-stats div {
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 16px;
+  padding: 16px 20px;
+  min-width: 150px;
+}
+
+.hero-stats h3 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.hero-stats p {
+  margin: 4px 0 0 0;
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.landing-highlights {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin: 32px 0;
+}
+
+.landing-highlights article {
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 16px;
+  padding: 18px;
+  background: rgba(148, 163, 184, 0.05);
+}
+
+.landing-highlights h4 {
+  margin: 0 0 8px 0;
+  font-size: 15px;
+}
+
+.landing-highlights p {
+  margin: 0;
+  font-size: 13px;
+  opacity: 0.75;
+}
+
+.cta-button {
+  width: 100%;
+  border: none;
+  border-radius: 999px;
+  padding: 14px;
+  font-size: 16px;
+  font-weight: 600;
+  background: linear-gradient(90deg, #38bdf8, #6366f1);
+  color: #020617;
+  cursor: pointer;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.cta-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cta-button:not(:disabled):hover {
+  transform: translateY(-2px);
+}
+
 .app-container {
   display: flex;
   height: 100vh;
