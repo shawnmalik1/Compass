@@ -149,17 +149,61 @@ function KnowledgeMap({
     [fineClusterArticles, scales]
   );
 
+  const focusCoarseNode = useMemo(
+    () => coarseNodes.find((node) => node.id === activeCoarseId) || null,
+    [coarseNodes, activeCoarseId]
+  );
+
   const visibleFineNodes = useMemo(() => {
     if (activeCoarseId == null) return [];
     return fineNodes.filter((node) => node.parent_id === activeCoarseId);
   }, [fineNodes, activeCoarseId]);
 
-  const showFineNodes = activeCoarseId != null && zoomK > 1.1 && visibleFineNodes.length > 0;
+  function explodeFineNodes(nodes, center) {
+    if (!center || !nodes.length) return nodes;
+    const sorted = [...nodes].sort((a, b) => b.size - a.size);
+    const placements = new Map();
+    let ring = 0;
+    let indexInRing = 0;
+
+    sorted.forEach((node) => {
+      const nodesThisRing = 6 + ring * 4;
+      if (indexInRing >= nodesThisRing) {
+        ring += 1;
+        indexInRing = 0;
+      }
+      const angleStep = (Math.PI * 2) / nodesThisRing;
+      const angle = indexInRing * angleStep;
+      const radius = 90 + ring * 80;
+      const xNorm = center.xNorm + Math.cos(angle) * radius;
+      const yNorm = center.yNorm + Math.sin(angle) * radius;
+      placements.set(node.id, { xNorm, yNorm });
+      indexInRing += 1;
+    });
+
+    return nodes.map((node) => {
+      const coords = placements.get(node.id);
+      if (!coords) return node;
+      return {
+        ...node,
+        xNorm: coords.xNorm,
+        yNorm: coords.yNorm,
+      };
+    });
+  }
+
+  const explodedFineNodes = useMemo(
+    () => explodeFineNodes(visibleFineNodes, focusCoarseNode),
+    [visibleFineNodes, focusCoarseNode]
+  );
+
+  const showFineNodes =
+    activeCoarseId != null &&
+    focusCoarseNode &&
+    explodedFineNodes &&
+    explodedFineNodes.length > 0;
   const showArticleDots =
-    selectedFineCluster &&
-    fineClusterArticles &&
-    fineClusterArticles.length > 0 &&
-    zoomK > 1.2;
+    selectedFineCluster && fineClusterArticles && fineClusterArticles.length > 0;
 
   useEffect(() => {
     const svg = d3.select(svgRef.current);
@@ -173,6 +217,12 @@ function KnowledgeMap({
 
     svg.call(zoom);
   }, []);
+
+  useEffect(() => {
+    if (activeCoarseId != null && zoomK < 0.9 && onBackgroundClick) {
+      onBackgroundClick();
+    }
+  }, [zoomK, activeCoarseId, onBackgroundClick]);
 
   function handleSvgClick() {
     if (onBackgroundClick) onBackgroundClick();
@@ -204,6 +254,11 @@ function KnowledgeMap({
             const fillColor = adjustColor(color, "brighter");
             const strokeColor = adjustColor(color, "darker");
             const hideBubble = isActive && showFineNodes;
+            const isDimmed = activeCoarseId != null && !isActive;
+
+            if (isDimmed) {
+              return null;
+            }
 
             return (
               <g
@@ -227,7 +282,7 @@ function KnowledgeMap({
                     r={node.size}
                     style={{
                       fill: fillColor,
-                      opacity: isActive ? 1 : 0.85,
+                      opacity: isActive ? 1 : 0.82,
                       stroke: isActive ? "#f3f4f6" : strokeColor,
                       strokeWidth: isActive ? 2.6 : 1.6,
                       filter: "url(#clusterGlow)",
@@ -269,7 +324,7 @@ function KnowledgeMap({
           })}
 
           {showFineNodes &&
-            visibleFineNodes.map((node) => {
+            explodedFineNodes.map((node) => {
               const color = getTopicColor(node.label);
               const isSelected =
                 selectedFineCluster && node.id === selectedFineCluster.fine_cluster_id;
