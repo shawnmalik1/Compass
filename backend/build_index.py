@@ -1,10 +1,12 @@
 import numpy as np
 import joblib
+import os
 
 from sentence_transformers import SentenceTransformer
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.manifold import TSNE
 from sklearn.feature_extraction.text import TfidfVectorizer
+from openai import OpenAI
 
 from config import (
     DATA_DIR,
@@ -28,6 +30,9 @@ LABEL_BLOCKLIST = {
     "page",
     "story",
 }
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 
 def _clean_terms(scores, feature_names, default_label):
@@ -62,6 +67,59 @@ def _build_labels(assignments, tfidf_matrix, feature_names, count, prefix):
         cluster_scores = tfidf_matrix[mask].mean(axis=0).A1
         labels[cid] = _clean_terms(cluster_scores, feature_names, default_label)
     return labels
+
+
+def _sample_cluster_text(df, mask, limit=5):
+    try:
+        headlines = (
+            df.loc[mask, "headline"]
+            .dropna()
+            .astype(str)
+            .str.strip()
+            .replace("", np.nan)
+            .dropna()
+            .tolist()
+        )
+    except Exception:
+        headlines = []
+    if not headlines:
+        try:
+            abstracts = (
+                df.loc[mask, "abstract"]
+                .dropna()
+                .astype(str)
+                .str.strip()
+                .replace("", np.nan)
+                .dropna()
+                .tolist()
+            )
+        except Exception:
+            abstracts = []
+        headlines = abstracts
+    return headlines[:limit]
+
+
+def _ai_label(default_label, samples, level):
+    if not openai_client or not samples:
+        return default_label
+    prompt = (
+        f"You are naming clusters inside a knowledge graph of New York Times articles.\n"
+        f"Provide a concise {level} label (max 4 words) based on the following sample headlines:\n"
+        + "\n".join(f"- {s}" for s in samples)
+        + "\nCurrent label suggestion: "
+        f"{default_label}\nRespond with only the improved label."
+    )
+    try:
+        response = openai_client.responses.create(
+            model="gpt-4o-mini",
+            input=prompt,
+        )
+        text = (response.output_text or "").strip()
+        if not text:
+            return default_label
+        return text[:80]
+    except Exception:
+        return default_label
 
 
 def build_index():
@@ -113,6 +171,25 @@ def build_index():
     fine_labels = _build_labels(
         fine_ids, X_tfidf, feature_names, FINE_CLUSTER_COUNT, "Subtopic"
     )
+
+    if openai_client:
+        print("Refining cluster names with OpenAI...")
+        for cid in range(COARSE_CLUSTER_COUNT):
+            mask = coarse_ids == cid
+            if not np.any(mask):
+                continue
+            samples = _sample_cluster_text(df, mask)
+            coarse_labels[cid] = _ai_label(
+                coarse_labels.get(cid, f"Topic {cid}"), samples, "broad topic"
+            )
+        for fid in range(FINE_CLUSTER_COUNT):
+            mask = fine_ids == fid
+            if not np.any(mask):
+                continue
+            samples = _sample_cluster_text(df, mask)
+            fine_labels[fid] = _ai_label(
+                fine_labels.get(fid, f"Subtopic {fid}"), samples, "subtopic"
+            )
 
     print("Summarizing clusters for the map...")
     coords_array = np.asarray(coords_2d)

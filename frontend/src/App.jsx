@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { fetchMap, fetchFineCluster, searchArticles, uploadText } from "./api";
+import { fetchMap, fetchFineCluster, uploadText, createCitation } from "./api";
 import KnowledgeMap from "./components/KnowledgeMap";
 import Sidebar from "./components/Sidebar";
 import Landing from "./components/Landing";
@@ -11,10 +11,15 @@ function App() {
   const [selectedFineCluster, setSelectedFineCluster] = useState(null);
   const [fineClusterArticles, setFineClusterArticles] = useState([]);
   const [hoveredNode, setHoveredNode] = useState(null);
-  const [searchResults, setSearchResults] = useState(null);
   const [uploadResult, setUploadResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [showLanding, setShowLanding] = useState(true);
+  const [citationState, setCitationState] = useState({
+    articleId: null,
+    text: "",
+    loading: false,
+    error: null,
+  });
 
   useEffect(() => {
     async function load() {
@@ -40,26 +45,12 @@ function App() {
     );
   }, [mapData, activeCoarseId]);
 
-  async function handleSearch(query) {
-    if (!query.trim()) return;
-    try {
-      const res = await searchArticles(query.trim());
-      setSearchResults(res);
-      // keep currently selected cluster so clearing search restores it
-    } catch (err) {
-      console.error(err);
-    }
-  }
-
-  function handleClearSearch() {
-    setSearchResults(null);
-  }
-
   function handleBackgroundClick() {
     setActiveCoarseId(null);
     setSelectedFineCluster(null);
     setFineClusterArticles([]);
     setHoveredNode(null);
+    setCitationState({ articleId: null, text: "", loading: false, error: null });
   }
 
   function handleCoarseClusterClick(clusterId) {
@@ -75,6 +66,7 @@ function App() {
       setSelectedFineCluster(detail);
       setFineClusterArticles(detail.articles);
       setActiveCoarseId(detail.parent_coarse_id);
+      setCitationState({ articleId: null, text: "", loading: false, error: null });
     } catch (err) {
       console.error(err);
     }
@@ -86,7 +78,6 @@ function App() {
       const res = await uploadText(text.trim());
       setUploadResult(res);
       await handleFineClusterClick(res.fine_cluster_id);
-      setSearchResults(null);
     } catch (err) {
       console.error(err);
     }
@@ -94,6 +85,33 @@ function App() {
 
   function handleClearUpload() {
     setUploadResult(null);
+  }
+
+  async function handleGenerateCitation(article) {
+    if (!article) return;
+    setCitationState({
+      articleId: article.id,
+      text: "",
+      loading: true,
+      error: null,
+    });
+    try {
+      const res = await createCitation(article);
+      setCitationState({
+        articleId: article.id,
+        text: res.citation,
+        loading: false,
+        error: null,
+      });
+    } catch (err) {
+      console.error(err);
+      setCitationState({
+        articleId: article.id,
+        text: "",
+        loading: false,
+        error: "Failed to generate citation.",
+      });
+    }
   }
 
   if (showLanding) {
@@ -130,13 +148,12 @@ function App() {
         selectedFineCluster={selectedFineCluster}
         fineClusterArticles={fineClusterArticles}
         hoveredNode={hoveredNode}
-        searchResults={searchResults}
         uploadResult={uploadResult}
-        onSearch={handleSearch}
-        onClearSearch={handleClearSearch}
         onUpload={handleUpload}
         onClearUpload={handleClearUpload}
         onFineClusterClick={handleFineClusterClick}
+        onGenerateCitation={handleGenerateCitation}
+        citationState={citationState}
       />
     </div>
   );

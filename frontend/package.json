@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "d3": "^7.9.0",
+    "pdfjs-dist": "^4.6.82",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

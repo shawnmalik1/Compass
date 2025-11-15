@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -8,6 +9,7 @@ import joblib
 import ast
 
 from sentence_transformers import SentenceTransformer
+from openai import OpenAI
 
 from config import DATA_DIR, EMBEDDING_MODEL_NAME
 
@@ -75,6 +77,8 @@ map_bounds = index["map_bounds"]
 
 embed_model = SentenceTransformer(EMBEDDING_MODEL_NAME)
 emb_norm = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 
 class MapBounds(BaseModel):
@@ -103,6 +107,7 @@ class ArticleSummary(BaseModel):
     abstract: Optional[str] = None
     pub_date: Optional[str] = None
     section: Optional[str] = None
+    byline: Optional[str] = None
     url: Optional[str] = None
     coarse_cluster_id: Optional[int] = None
     fine_cluster_id: Optional[int] = None
@@ -137,6 +142,19 @@ class UploadResult(BaseModel):
     parent_coarse_id: int
     parent_coarse_label: str
     neighbors: List[ArticleSummary]
+
+
+class CitationRequest(BaseModel):
+    headline: str
+    pub_date: Optional[str] = None
+    url: Optional[str] = None
+    section: Optional[str] = None
+    authors: Optional[List[str]] = None
+    source: Optional[str] = "The New York Times"
+
+
+class CitationResponse(BaseModel):
+    citation: str
 
 
 @app.get("/api/map", response_model=MapResponse)
@@ -177,6 +195,7 @@ def get_fine_cluster(fine_id: int):
                 abstract=_clean_field(art.get("abstract")),
                 pub_date=_clean_field(art.get("pub_date")),
                 section=_clean_field(art.get("section")),
+                byline=_clean_field(art.get("byline")),
                 url=_clean_field(art.get("url")),
                 coarse_cluster_id=int(coarse_ids[i]),
                 fine_cluster_id=int(fine_ids[i]),
@@ -212,6 +231,7 @@ def search_articles(q: str, k: int = 20):
                 abstract=_clean_field(art.get("abstract")),
                 pub_date=_clean_field(art.get("pub_date")),
                 section=_clean_field(art.get("section")),
+                byline=_clean_field(art.get("byline")),
                 url=_clean_field(art.get("url")),
                 coarse_cluster_id=int(coarse_ids[i]),
                 fine_cluster_id=int(fine_ids[i]),
@@ -256,6 +276,7 @@ async def upload_text(text: str = Form(...)):
                 abstract=_clean_field(art.get("abstract")),
                 pub_date=_clean_field(art.get("pub_date")),
                 section=_clean_field(art.get("section")),
+                byline=_clean_field(art.get("byline")),
                 url=_clean_field(art.get("url")),
                 coarse_cluster_id=int(coarse_ids[i]),
                 fine_cluster_id=int(fine_ids[i]),
@@ -273,3 +294,48 @@ async def upload_text(text: str = Form(...)):
         parent_coarse_label=parent_label,
         neighbors=neighbors,
     )
+
+
+def _fallback_citation(req: CitationRequest) -> str:
+    authors = req.authors or []
+    if not authors and req.section:
+        authors = [req.section]
+    author_part = "; ".join(authors) if authors else req.source or "The New York Times"
+    date = req.pub_date or "n.d."
+    title = req.headline or "Untitled article"
+    source = req.source or "The New York Times"
+    url = req.url or ""
+    citation = f"{author_part} ({date}). {title}. {source}. {url}".strip()
+    return citation
+
+
+def _generate_citation(req: CitationRequest) -> str:
+    fallback = _fallback_citation(req)
+    if not openai_client:
+        return fallback
+    prompt = (
+        "Create an APA 7 citation for the following news article metadata. "
+        "If some details are missing, infer in a natural scholarly way. "
+        "Return only the final citation text.\n"
+        f"Headline: {req.headline}\n"
+        f"Authors: {', '.join(req.authors or [])}\n"
+        f"Publication date: {req.pub_date}\n"
+        f"Section: {req.section}\n"
+        f"Source: {req.source}\n"
+        f"URL: {req.url}"
+    )
+    try:
+        response = openai_client.responses.create(
+            model="gpt-4o-mini",
+            input=prompt,
+        )
+        text = (response.output_text or "").strip()
+        return text or fallback
+    except Exception:
+        return fallback
+
+
+@app.post("/api/citation", response_model=CitationResponse)
+def create_citation(req: CitationRequest):
+    citation = _generate_citation(req)
+    return CitationResponse(citation=citation)

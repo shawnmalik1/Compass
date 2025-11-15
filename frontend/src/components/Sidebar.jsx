@@ -1,5 +1,4 @@
 import React from "react";
-import SearchBar from "./SearchBar";
 import UploadPanel from "./UploadPanel";
 import ArticleList from "./ArticleList";
 
@@ -8,13 +7,12 @@ function Sidebar({
   selectedFineCluster,
   fineClusterArticles,
   hoveredNode,
-  searchResults,
   uploadResult,
-  onSearch,
-  onClearSearch,
   onUpload,
   onClearUpload,
   onFineClusterClick,
+  onGenerateCitation,
+  citationState,
 }) {
   const isCoarseHover = hoveredNode && hoveredNode.type === "coarse";
 
@@ -25,23 +23,16 @@ function Sidebar({
         Zoom from big-picture themes down to specific subtopics and articles.
       </p>
 
-      <SearchBar onSearch={onSearch} onClear={onClearSearch} />
-
-      {searchResults && (
-        <ArticleList
-          title={`Search: “${searchResults.query}”`}
-          articles={searchResults.results}
-        />
-      )}
-
-      {!searchResults && selectedFineCluster && (
+      {selectedFineCluster && (
         <ArticleList
           title={`Subtopic: ${selectedFineCluster.label}`}
           articles={fineClusterArticles.slice(0, 80)}
+          onCite={onGenerateCitation}
+          citationState={citationState}
         />
       )}
 
-      {isCoarseHover && !selectedFineCluster && !searchResults && (
+      {isCoarseHover && !selectedFineCluster && (
         <div className="hover-info">
           <h3>Topic preview</h3>
           <div className="hover-label">{hoveredNode.label}</div>
@@ -51,7 +42,7 @@ function Sidebar({
         </div>
       )}
 
-      {activeCoarseCluster && !selectedFineCluster && !searchResults && (
+      {activeCoarseCluster && !selectedFineCluster && (
         <div className="hover-info">
           <h3>Selected topic</h3>
           <div className="hover-label">{activeCoarseCluster.label}</div>
