@@ -29,3 +29,13 @@ export async function uploadText(text) {
   if (!res.ok) throw new Error("Upload failed");
   return res.json();
 }
+
+export async function fetchFaculty(keywords) {
+  const res = await fetch(`${API_BASE}/faculty`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ keywords }),
+  });
+  if (!res.ok) throw new Error("Faculty lookup failed");
+  return res.json();
+}

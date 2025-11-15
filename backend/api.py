@@ -10,6 +10,7 @@ import ast
 from sentence_transformers import SentenceTransformer
 
 from config import DATA_DIR, EMBEDDING_MODEL_NAME
+from faculty_scraper import scrape_faculty
 
 INDEX_PATH = DATA_DIR / "index.pkl"
 
@@ -137,6 +138,22 @@ class UploadResult(BaseModel):
     parent_coarse_id: int
     parent_coarse_label: str
     neighbors: List[ArticleSummary]
+
+
+class FacultyRequest(BaseModel):
+    keywords: List[str]
+
+
+class FacultyContact(BaseModel):
+    name: str
+    department: Optional[str] = None
+    email: Optional[str] = None
+    keyword: Optional[str] = None
+
+
+class FacultyResponse(BaseModel):
+    keywords: List[str]
+    results: List[FacultyContact]
 
 
 @app.get("/api/map", response_model=MapResponse)
@@ -273,3 +290,29 @@ async def upload_text(text: str = Form(...)):
         parent_coarse_label=parent_label,
         neighbors=neighbors,
     )
+
+
+@app.post("/api/faculty", response_model=FacultyResponse)
+def fetch_faculty_contacts(req: FacultyRequest):
+    keywords = [kw.strip() for kw in req.keywords if kw and kw.strip()]
+    if not keywords:
+        raise HTTPException(status_code=400, detail="No keywords provided")
+
+    try:
+        df = scrape_faculty(keywords)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Faculty scrape failed: {exc}") from exc
+
+    results: List[FacultyContact] = []
+    if not df.empty:
+        for _, row in df.iterrows():
+            results.append(
+                FacultyContact(
+                    name=_clean_field(row.get("name")) or "",
+                    department=_clean_field(row.get("department")),
+                    email=_clean_field(row.get("email")),
+                    keyword=_clean_field(row.get("keyword")),
+                )
+            )
+
+    return FacultyResponse(keywords=keywords, results=results)

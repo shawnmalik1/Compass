@@ -1,8 +1,27 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { fetchMap, fetchFineCluster, searchArticles, uploadText } from "./api";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { fetchMap, fetchFineCluster, fetchFaculty, searchArticles, uploadText } from "./api";
 import KnowledgeMap from "./components/KnowledgeMap";
 import Sidebar from "./components/Sidebar";
 import Landing from "./components/Landing";
+
+function labelsAsKeywords(labels = []) {
+  const seen = new Set();
+  const compact = [];
+  labels
+    .filter(Boolean)
+    .forEach((label) => {
+      const parts = label
+        .split(/[\/,]/g)
+        .map((part) => part.trim())
+        .filter(Boolean);
+      parts.forEach((part) => {
+        if (seen.has(part)) return;
+        seen.add(part);
+        compact.push(part);
+      });
+    });
+  return compact;
+}
 
 function App() {
   const [mapData, setMapData] = useState(null);
@@ -15,6 +34,15 @@ function App() {
   const [uploadResult, setUploadResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [showLanding, setShowLanding] = useState(true);
+  const [facultyState, setFacultyState] = useState({
+    status: "idle",
+    results: [],
+    keywords: [],
+    sourceLabel: "",
+    error: "",
+  });
+  const facultyRequestRef = useRef(0);
+  const facultyLabelsRef = useRef([]);
 
   useEffect(() => {
     async function load() {
@@ -40,6 +68,67 @@ function App() {
     );
   }, [mapData, activeCoarseId]);
 
+  const resetFacultyState = () => {
+    setFacultyState({
+      status: "idle",
+      results: [],
+      keywords: [],
+      sourceLabel: "",
+      error: "",
+    });
+    facultyLabelsRef.current = [];
+  };
+
+  const startFacultyLookup = (labels = []) => {
+    const keywords = labelsAsKeywords(labels);
+    const labelSummary = labels.filter(Boolean).join(" / ");
+    facultyLabelsRef.current = labels;
+
+    if (!keywords.length) {
+      setFacultyState((prev) => ({
+        ...prev,
+        status: "success",
+        results: [],
+        keywords: [],
+        sourceLabel: labelSummary,
+        error: "",
+      }));
+      return;
+    }
+
+    const requestId = facultyRequestRef.current + 1;
+    facultyRequestRef.current = requestId;
+    setFacultyState({
+      status: "loading",
+      results: [],
+      keywords,
+      sourceLabel: labelSummary,
+      error: "",
+    });
+
+    fetchFaculty(keywords)
+      .then((res) => {
+        if (facultyRequestRef.current !== requestId) return;
+        setFacultyState({
+          status: "success",
+          results: res.results || [],
+          keywords: res.keywords || keywords,
+          sourceLabel: labelSummary,
+          error: "",
+        });
+      })
+      .catch((err) => {
+        if (facultyRequestRef.current !== requestId) return;
+        setFacultyState({
+          status: "error",
+          results: [],
+          keywords,
+          sourceLabel: labelSummary,
+          error: err.message || "Failed to load faculty",
+        });
+      });
+  };
+
   async function handleSearch(query) {
     if (!query.trim()) return;
     try {
@@ -60,13 +149,18 @@ function App() {
     setSelectedFineCluster(null);
     setFineClusterArticles([]);
     setHoveredNode(null);
+    resetFacultyState();
   }
 
   function handleCoarseClusterClick(clusterId) {
+    const coarseLabel =
+      mapData?.coarse_clusters?.find((cluster) => cluster.id === clusterId)?.label ||
+      `Topic ${clusterId}`;
     setActiveCoarseId(clusterId);
     setSelectedFineCluster(null);
     setFineClusterArticles([]);
     setHoveredNode(null);
+    startFacultyLookup([coarseLabel]);
   }
 
   async function handleFineClusterClick(fineClusterId) {
@@ -75,6 +169,7 @@ function App() {
       setSelectedFineCluster(detail);
       setFineClusterArticles(detail.articles);
       setActiveCoarseId(detail.parent_coarse_id);
+      startFacultyLookup([detail.label]);
     } catch (err) {
       console.error(err);
     }
@@ -94,6 +189,11 @@ function App() {
 
   function handleClearUpload() {
     setUploadResult(null);
+  }
+
+  function handleRetryFaculty() {
+    if (!facultyLabelsRef.current.length) return;
+    startFacultyLookup(facultyLabelsRef.current);
   }
 
   if (showLanding) {
@@ -137,6 +237,8 @@ function App() {
         onUpload={handleUpload}
         onClearUpload={handleClearUpload}
         onFineClusterClick={handleFineClusterClick}
+        facultyState={facultyState}
+        onRetryFaculty={handleRetryFaculty}
       />
     </div>
   );
