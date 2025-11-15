@@ -7,6 +7,7 @@ from sklearn.cluster import MiniBatchKMeans
 from sklearn.manifold import TSNE
 from sklearn.feature_extraction.text import TfidfVectorizer
 from openai import OpenAI
+from dotenv import load_dotenv
 
 from config import (
     DATA_DIR,
@@ -31,6 +32,7 @@ LABEL_BLOCKLIST = {
     "story",
 }
 
+load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 

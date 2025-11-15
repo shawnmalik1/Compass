@@ -7,3 +7,5 @@ sentence-transformers
 kagglehub
 python-multipart
 joblib
+openai
+python-dotenv
