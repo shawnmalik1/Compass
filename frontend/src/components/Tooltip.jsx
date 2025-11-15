@@ -17,7 +17,7 @@ function Tooltip({ hoveredNode }) {
     zIndex: 50,
   };
 
-  if (hoveredNode.type === "cluster") {
+  if (hoveredNode.type === "coarse") {
     return (
       <div style={style}>
         <div style={{ fontWeight: 600, marginBottom: 4 }}>Topic</div>
@@ -29,14 +29,33 @@ function Tooltip({ hoveredNode }) {
     );
   }
 
+  if (hoveredNode.type === "fine") {
+    return (
+      <div style={style}>
+        <div style={{ fontWeight: 600, marginBottom: 4 }}>Subtopic</div>
+        <div style={{ marginBottom: 4 }}>{hoveredNode.label}</div>
+        <div style={{ opacity: 0.8, fontSize: 12 }}>
+          {hoveredNode.count} articles focused on this theme
+        </div>
+      </div>
+    );
+  }
+
+  if (hoveredNode.type !== "article") return null;
+
   return (
     <div style={style}>
       <div style={{ fontWeight: 600, marginBottom: 4 }}>
         {hoveredNode.headline}
       </div>
-      {hoveredNode.section && (
+      {hoveredNode.fineClusterLabel && (
+        <div style={{ fontSize: 11, opacity: 0.85, marginBottom: 2 }}>
+          {hoveredNode.fineClusterLabel}
+        </div>
+      )}
+      {(hoveredNode.section || hoveredNode.pub_date) && (
         <div style={{ fontSize: 11, opacity: 0.8, marginBottom: 2 }}>
-          {hoveredNode.section} • {hoveredNode.pub_date}
+          {[hoveredNode.section, hoveredNode.pub_date].filter(Boolean).join(" • ")}
         </div>
       )}
       {hoveredNode.abstract && (

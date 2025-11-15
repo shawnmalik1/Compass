@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 
-function UploadPanel({ onUpload, uploadResult, onClusterClick }) {
+function UploadPanel({ onUpload, uploadResult, onFineClusterClick, onClear }) {
   const [text, setText] = useState("");
 
   function handleSubmit(e) {
@@ -28,14 +28,21 @@ function UploadPanel({ onUpload, uploadResult, onClusterClick }) {
       {uploadResult && (
         <div className="upload-result">
           <div className="tag">
-            Closest topic:
+            Closest subtopic:
             <button
               type="button"
-              onClick={() => onClusterClick(uploadResult.cluster_id)}
+              onClick={() =>
+                onFineClusterClick(uploadResult.fine_cluster_id)
+              }
             >
-              {uploadResult.cluster_label}
+              {uploadResult.fine_cluster_label}
             </button>
           </div>
+          {uploadResult.parent_coarse_label && (
+            <div className="meta">
+              Within topic: {uploadResult.parent_coarse_label}
+            </div>
+          )}
           <h4>Closest articles</h4>
           <ul>
             {uploadResult.neighbors.slice(0, 5).map((n) => (
@@ -49,6 +56,22 @@ function UploadPanel({ onUpload, uploadResult, onClusterClick }) {
               </li>
             ))}
           </ul>
+          {onClear && (
+            <button
+              type="button"
+              onClick={onClear}
+              style={{
+                background: "none",
+                border: "none",
+                color: "#60a5fa",
+                cursor: "pointer",
+                padding: 0,
+                marginTop: 8,
+              }}
+            >
+              Clear result
+            </button>
+          )}
         </div>
       )}
     </div>

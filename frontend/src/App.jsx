@@ -1,12 +1,14 @@
-import React, { useEffect, useState } from "react";
-import { fetchMap, fetchCluster, searchArticles, uploadText } from "./api";
+import React, { useEffect, useMemo, useState } from "react";
+import { fetchMap, fetchFineCluster, searchArticles, uploadText } from "./api";
 import KnowledgeMap from "./components/KnowledgeMap";
 import Sidebar from "./components/Sidebar";
 
 function App() {
   const [mapData, setMapData] = useState(null);
-  const [selectedCluster, setSelectedCluster] = useState(null);
-  const [clusterArticles, setClusterArticles] = useState([]);
+  const [mapBounds, setMapBounds] = useState(null);
+  const [activeCoarseId, setActiveCoarseId] = useState(null);
+  const [selectedFineCluster, setSelectedFineCluster] = useState(null);
+  const [fineClusterArticles, setFineClusterArticles] = useState([]);
   const [hoveredNode, setHoveredNode] = useState(null);
   const [searchResults, setSearchResults] = useState(null);
   const [uploadResult, setUploadResult] = useState(null);
@@ -18,6 +20,7 @@ function App() {
       try {
         const data = await fetchMap();
         setMapData(data);
+        setMapBounds(data.bounds);
       } catch (err) {
         console.error(err);
       } finally {
@@ -27,23 +30,20 @@ function App() {
     load();
   }, []);
 
-  async function handleClusterClick(clusterId) {
-    try {
-      const detail = await fetchCluster(clusterId);
-      setSelectedCluster(detail);
-      setClusterArticles(detail.articles);
-      // searchResults stays; user can clear it via Clear button
-    } catch (err) {
-      console.error(err);
-    }
-  }
+  const activeCoarseCluster = useMemo(() => {
+    if (!mapData || activeCoarseId == null) return null;
+    return (
+      mapData.coarse_clusters.find((cluster) => cluster.id === activeCoarseId) ||
+      null
+    );
+  }, [mapData, activeCoarseId]);
 
   async function handleSearch(query) {
     if (!query.trim()) return;
     try {
       const res = await searchArticles(query.trim());
       setSearchResults(res);
-      // keep selectedCluster so that clearing search restores the cluster view
+      // keep currently selected cluster so clearing search restores it
     } catch (err) {
       console.error(err);
     }
@@ -53,14 +53,37 @@ function App() {
     setSearchResults(null);
   }
 
+  function handleBackgroundClick() {
+    setActiveCoarseId(null);
+    setSelectedFineCluster(null);
+    setFineClusterArticles([]);
+    setHoveredNode(null);
+  }
+
+  function handleCoarseClusterClick(clusterId) {
+    setActiveCoarseId(clusterId);
+    setSelectedFineCluster(null);
+    setFineClusterArticles([]);
+    setHoveredNode(null);
+  }
+
+  async function handleFineClusterClick(fineClusterId) {
+    try {
+      const detail = await fetchFineCluster(fineClusterId);
+      setSelectedFineCluster(detail);
+      setFineClusterArticles(detail.articles);
+      setActiveCoarseId(detail.parent_coarse_id);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
   async function handleUpload(text) {
     if (!text.trim()) return;
     try {
       const res = await uploadText(text.trim());
       setUploadResult(res);
-      const detail = await fetchCluster(res.cluster_id);
-      setSelectedCluster(detail);
-      setClusterArticles(detail.articles);
+      await handleFineClusterClick(res.fine_cluster_id);
       setSearchResults(null);
     } catch (err) {
       console.error(err);
@@ -77,18 +100,24 @@ function App() {
         {loading && <div className="overlay">Loading map…</div>}
         {mapData && (
           <KnowledgeMap
-            clusters={mapData.clusters}
-            selectedCluster={selectedCluster}
-            onClusterClick={handleClusterClick}
+            bounds={mapBounds}
+            coarseClusters={mapData.coarse_clusters}
+            fineClusters={mapData.fine_clusters}
+            activeCoarseId={activeCoarseId}
+            selectedFineCluster={selectedFineCluster}
+            fineClusterArticles={fineClusterArticles}
+            onCoarseClick={handleCoarseClusterClick}
+            onFineClick={handleFineClusterClick}
+            onBackgroundClick={handleBackgroundClick}
             hoveredNode={hoveredNode}
             setHoveredNode={setHoveredNode}
-            clusterArticles={clusterArticles}
           />
         )}
       </div>
       <Sidebar
-        selectedCluster={selectedCluster}
-        clusterArticles={clusterArticles}
+        activeCoarseCluster={activeCoarseCluster}
+        selectedFineCluster={selectedFineCluster}
+        fineClusterArticles={fineClusterArticles}
         hoveredNode={hoveredNode}
         searchResults={searchResults}
         uploadResult={uploadResult}
@@ -96,7 +125,7 @@ function App() {
         onClearSearch={handleClearSearch}
         onUpload={handleUpload}
         onClearUpload={handleClearUpload}
-        onClusterClick={handleClusterClick}
+        onFineClusterClick={handleFineClusterClick}
       />
     </div>
   );

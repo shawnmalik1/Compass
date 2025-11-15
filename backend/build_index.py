@@ -1,14 +1,67 @@
 import numpy as np
 import joblib
-from pathlib import Path
 
 from sentence_transformers import SentenceTransformer
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.manifold import TSNE
 from sklearn.feature_extraction.text import TfidfVectorizer
 
-from config import DATA_DIR, EMBEDDING_MODEL_NAME, N_CLUSTERS, TSNE_PERPLEXITY
+from config import (
+    DATA_DIR,
+    EMBEDDING_MODEL_NAME,
+    TSNE_PERPLEXITY,
+    COARSE_CLUSTER_COUNT,
+    FINE_CLUSTER_COUNT,
+)
 from data_prep import load_sample
+
+LABEL_BLOCKLIST = {
+    "kicker",
+    "content",
+    "print",
+    "headline",
+    "seo",
+    "main",
+    "sub",
+    "lede",
+    "section",
+    "page",
+    "story",
+}
+
+
+def _clean_terms(scores, feature_names, default_label):
+    sorted_idx = scores.argsort()[::-1]
+    terms = []
+    for idx in sorted_idx:
+        term = feature_names[idx]
+        clean = term.replace("_", " ").strip()
+        if len(clean) < 3:
+            continue
+        lower = clean.lower()
+        if any(bad in lower for bad in LABEL_BLOCKLIST):
+            continue
+        if lower.isdigit():
+            continue
+        terms.append(clean)
+        if len(terms) == 3:
+            break
+    if not terms:
+        return default_label
+    return " / ".join(terms)
+
+
+def _build_labels(assignments, tfidf_matrix, feature_names, count, prefix):
+    labels = {}
+    for cid in range(count):
+        mask = assignments == cid
+        default_label = f"{prefix} {cid}"
+        if not np.any(mask):
+            labels[cid] = default_label
+            continue
+        cluster_scores = tfidf_matrix[mask].mean(axis=0).A1
+        labels[cid] = _clean_terms(cluster_scores, feature_names, default_label)
+    return labels
 
 
 def build_index():
@@ -20,14 +73,22 @@ def build_index():
     model = SentenceTransformer(EMBEDDING_MODEL_NAME)
     embeddings = model.encode(texts, show_progress_bar=True, normalize_embeddings=True)
 
-    print("Clustering articles into topics...")
-    kmeans = MiniBatchKMeans(
-        n_clusters=N_CLUSTERS,
+    print("Clustering articles into coarse and fine topics...")
+    coarse_kmeans = MiniBatchKMeans(
+        n_clusters=COARSE_CLUSTER_COUNT,
         random_state=42,
         batch_size=512,
         n_init=10,
     )
-    cluster_ids = kmeans.fit_predict(embeddings)
+    coarse_ids = coarse_kmeans.fit_predict(embeddings)
+
+    fine_kmeans = MiniBatchKMeans(
+        n_clusters=FINE_CLUSTER_COUNT,
+        random_state=123,
+        batch_size=512,
+        n_init=10,
+    )
+    fine_ids = fine_kmeans.fit_predict(embeddings)
 
     print("Computing 2D layout with t-SNE (for map positions)...")
     tsne = TSNE(
@@ -40,28 +101,88 @@ def build_index():
     coords_2d = tsne.fit_transform(embeddings)
 
     print("Computing cluster labels from TF-IDF...")
-    vectorizer = TfidfVectorizer(max_features=5000, ngram_range=(1, 2), stop_words="english")
+    vectorizer = TfidfVectorizer(
+        max_features=6000, ngram_range=(1, 2), stop_words="english"
+    )
     X_tfidf = vectorizer.fit_transform(df["text"])
     feature_names = np.array(vectorizer.get_feature_names_out())
 
-    cluster_labels = {}
-    for cid in range(N_CLUSTERS):
-        mask = cluster_ids == cid
+    coarse_labels = _build_labels(
+        coarse_ids, X_tfidf, feature_names, COARSE_CLUSTER_COUNT, "Topic"
+    )
+    fine_labels = _build_labels(
+        fine_ids, X_tfidf, feature_names, FINE_CLUSTER_COUNT, "Subtopic"
+    )
+
+    print("Summarizing clusters for the map...")
+    coords_array = np.asarray(coords_2d)
+    x_min, y_min = coords_array.min(axis=0)
+    x_max, y_max = coords_array.max(axis=0)
+    map_bounds = {
+        "x_min": float(x_min),
+        "x_max": float(x_max),
+        "y_min": float(y_min),
+        "y_max": float(y_max),
+    }
+
+    coarse_clusters = []
+    for cid in range(COARSE_CLUSTER_COUNT):
+        mask = coarse_ids == cid
         if not np.any(mask):
-            cluster_labels[cid] = f"Cluster {cid}"
             continue
-        cluster_tfidf = X_tfidf[mask].mean(axis=0).A1
-        top_idx = cluster_tfidf.argsort()[::-1][:4]
-        terms = [feature_names[i] for i in top_idx]
-        label = " / ".join(terms)
-        cluster_labels[cid] = label
+        coords = coords_array[mask]
+        x_mean, y_mean = coords.mean(axis=0)
+        count = int(mask.sum())
+        size = 10 + np.log1p(count) * 6
+        coarse_clusters.append(
+            {
+                "id": int(cid),
+                "label": coarse_labels.get(cid, f"Topic {cid}"),
+                "x": float(x_mean),
+                "y": float(y_mean),
+                "size": float(size),
+                "count": count,
+            }
+        )
+
+    parent_fine_ids = np.full(FINE_CLUSTER_COUNT, -1, dtype=np.int32)
+    fine_clusters = []
+    for fid in range(FINE_CLUSTER_COUNT):
+        mask = fine_ids == fid
+        if not np.any(mask):
+            continue
+        member_coarse = coarse_ids[mask]
+        counts = np.bincount(member_coarse, minlength=COARSE_CLUSTER_COUNT)
+        parent = int(counts.argmax())
+        parent_fine_ids[fid] = parent
+        coords = coords_array[mask]
+        x_mean, y_mean = coords.mean(axis=0)
+        count = int(mask.sum())
+        size = 6 + np.log1p(count) * 4
+        fine_clusters.append(
+            {
+                "id": int(fid),
+                "label": fine_labels.get(fid, f"Subtopic {fid}"),
+                "parent_id": parent,
+                "x": float(x_mean),
+                "y": float(y_mean),
+                "size": float(size),
+                "count": count,
+            }
+        )
 
     index = {
         "articles": df.to_dict(orient="records"),
         "embeddings": embeddings.astype("float32"),
-        "cluster_ids": cluster_ids.astype("int32"),
-        "coords_2d": coords_2d.astype("float32"),
-        "cluster_labels": cluster_labels,
+        "coords_2d": coords_array.astype("float32"),
+        "coarse_ids": coarse_ids.astype("int32"),
+        "fine_ids": fine_ids.astype("int32"),
+        "parent_fine_ids": parent_fine_ids.astype("int32"),
+        "coarse_clusters": coarse_clusters,
+        "fine_clusters": fine_clusters,
+        "coarse_cluster_labels": coarse_labels,
+        "fine_cluster_labels": fine_labels,
+        "map_bounds": map_bounds,
     }
 
     out_path = DATA_DIR / "index.pkl"

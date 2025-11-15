@@ -6,9 +6,9 @@ export async function fetchMap() {
   return res.json();
 }
 
-export async function fetchCluster(clusterId) {
-  const res = await fetch(`${API_BASE}/cluster/${clusterId}`);
-  if (!res.ok) throw new Error("Failed to fetch cluster");
+export async function fetchFineCluster(fineId) {
+  const res = await fetch(`${API_BASE}/fine_cluster/${fineId}`);
+  if (!res.ok) throw new Error("Failed to fetch fine cluster");
   return res.json();
 }
 

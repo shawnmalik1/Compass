@@ -4,8 +4,9 @@ import UploadPanel from "./UploadPanel";
 import ArticleList from "./ArticleList";
 
 function Sidebar({
-  selectedCluster,
-  clusterArticles,
+  activeCoarseCluster,
+  selectedFineCluster,
+  fineClusterArticles,
   hoveredNode,
   searchResults,
   uploadResult,
@@ -13,15 +14,15 @@ function Sidebar({
   onClearSearch,
   onUpload,
   onClearUpload,
-  onClusterClick,
+  onFineClusterClick,
 }) {
-  const isClusterHovered = hoveredNode && hoveredNode.type === "cluster";
+  const isCoarseHover = hoveredNode && hoveredNode.type === "coarse";
 
   return (
     <div className="sidebar">
       <h1>Granular Knowledge Map</h1>
       <p className="tagline">
-        Turn scattered NYT articles into an interactive, zoomable map of topics.
+        Zoom from big-picture themes down to specific subtopics and articles.
       </p>
 
       <SearchBar onSearch={onSearch} onClear={onClearSearch} />
@@ -33,14 +34,14 @@ function Sidebar({
         />
       )}
 
-      {!searchResults && selectedCluster && (
+      {!searchResults && selectedFineCluster && (
         <ArticleList
-          title={`Cluster: ${selectedCluster.label}`}
-          articles={clusterArticles.slice(0, 50)}
+          title={`Subtopic: ${selectedFineCluster.label}`}
+          articles={fineClusterArticles.slice(0, 80)}
         />
       )}
 
-      {isClusterHovered && !selectedCluster && !searchResults && (
+      {isCoarseHover && !selectedFineCluster && !searchResults && (
         <div className="hover-info">
           <h3>Topic preview</h3>
           <div className="hover-label">{hoveredNode.label}</div>
@@ -50,11 +51,21 @@ function Sidebar({
         </div>
       )}
 
+      {activeCoarseCluster && !selectedFineCluster && !searchResults && (
+        <div className="hover-info">
+          <h3>Selected topic</h3>
+          <div className="hover-label">{activeCoarseCluster.label}</div>
+          <div className="hover-count">
+            {activeCoarseCluster.count} articles across this topic
+          </div>
+        </div>
+      )}
+
       <UploadPanel
         onUpload={onUpload}
         onClear={onClearUpload}
         uploadResult={uploadResult}
-        onClusterClick={onClusterClick}
+        onFineClusterClick={onFineClusterClick}
       />
     </div>
   );
