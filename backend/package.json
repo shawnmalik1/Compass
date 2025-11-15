@@ -5,7 +5,9 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon index.js"
+    "dev": "nodemon index.js",
+    "dev:api": "python -m uvicorn api:app --reload --port 8000",
+    "dev:all": "concurrently -k \"npm:dev\" \"npm:dev:api\""
   },
   "keywords": [
     "embeddings",
@@ -23,6 +25,7 @@
     "pdf-parse": "^1.1.1"
   },
   "devDependencies": {
+    "concurrently": "^9.2.1",
     "nodemon": "^3.1.7"
   }
 }

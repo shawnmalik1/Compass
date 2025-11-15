@@ -1,84 +1,151 @@
 import { useMemo } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
 
+function pseudoRandom(seed) {
+  const x = Math.sin(seed) * 10000;
+  return x - Math.floor(x);
+}
+
+function deriveTopicLabel(article = {}) {
+  return (
+    article.fine_cluster_label ||
+    article.fineClusterLabel ||
+    article.coarse_cluster_label ||
+    article.coarseClusterLabel ||
+    article.parent_coarse_label ||
+    article.parentLabel ||
+    article.section_name ||
+    article.section ||
+    (Array.isArray(article.keywords) ? article.keywords[0] : null) ||
+    'Miscellaneous'
+  );
+}
+
 function buildGraphData(articles, documentNode) {
   const nodes = [];
   const links = [];
+  const linkSet = new Set();
 
-  const articleNodes = (articles || []).map((article) => ({
-    id: article.id,
-    type: 'article',
-    headline: article.headline,
-    section: article.section_name || article.section,
-    score: article.score,
-    data: article,
-  }));
+  const addLink = (source, target, type, weight = 0.05) => {
+    if (!source || !target || source === target) return;
+    const key = [source, target].sort().join('::');
+    if (linkSet.has(key)) return;
+    linkSet.add(key);
+    links.push({ source, target, type, weight });
+  };
 
-  nodes.push(...articleNodes);
+  const articleNodes = (articles || []).map((article) => {
+    const label = deriveTopicLabel(article);
+    return {
+      id: article.id,
+      type: 'article',
+      headline: article.headline,
+      section: label,
+      score: article.score,
+      data: article,
+    };
+  });
+
+  const sectionGroups = new Map();
+  articleNodes.forEach((node) => {
+    if (!sectionGroups.has(node.section)) {
+      sectionGroups.set(node.section, []);
+    }
+    sectionGroups.get(node.section).push(node);
+  });
+
+  const sectionNodes = Array.from(sectionGroups.entries())
+    .map(([section, articlesForSection]) => ({
+      id: `section-${section}`,
+      type: 'section',
+      label: `${section} · ${articlesForSection.length}`,
+      rawLabel: section,
+      size: articlesForSection.length,
+    }))
+    .filter((sectionNode) => sectionNode.size >= 3);
+
+  nodes.push(...sectionNodes, ...articleNodes);
+
+  sectionNodes.forEach((sectionNode) => {
+    const articlesForSection = sectionGroups.get(sectionNode.rawLabel) || [];
+    articlesForSection.forEach((article) => {
+      addLink(sectionNode.id, article.id, 'section-hub', 0.08);
+    });
+  });
 
   if (documentNode) {
     nodes.unshift(documentNode);
-    const linkedArticles = articleNodes.slice(0, 10);
+    const linkedArticles = articleNodes.slice(0, 12);
     linkedArticles.forEach((article) => {
-      links.push({
-        source: documentNode.id,
-        target: article.id,
-        type: 'doc-article',
-        weight: typeof article.score === 'number' ? article.score : 0.1,
-      });
+      addLink(
+        documentNode.id,
+        article.id,
+        'doc-article',
+        typeof article.score === 'number' ? article.score : 0.15,
+      );
     });
   }
 
-  // Simple cluster linking by section for extra structure.
-  const sectionGroups = new Map();
-  articleNodes.forEach((node) => {
-    const section = node.section || 'unknown';
-    if (!sectionGroups.has(section)) {
-      sectionGroups.set(section, []);
-    }
-    sectionGroups.get(section).push(node.id);
-  });
-
-  for (const ids of sectionGroups.values()) {
-    for (let i = 0; i < ids.length - 1; i += 1) {
-      links.push({
-        source: ids[i],
-        target: ids[i + 1],
-        type: 'section',
-        weight: 0.05,
-      });
-    }
+  // Light mesh to avoid stringy visualization.
+  const nodeCount = articleNodes.length;
+  if (nodeCount > 6) {
+    const neighborStep = Math.max(6, Math.floor(nodeCount / 4));
+    articleNodes.forEach((node, index) => {
+      if (index % 2 !== 0) return;
+      const neighborIndex = (index + neighborStep) % nodeCount;
+      addLink(node.id, articleNodes[neighborIndex].id, 'mesh', 0.015);
+    });
   }
 
   return { nodes, links };
 }
 
-function Graph({ articles = [], documentNode, onNodeClick, selectedNodeId }) {
+function Graph({
+  articles = [],
+  documentNode,
+  onNodeClick,
+  selectedNodeId,
+}) {
   const graphData = useMemo(
     () => buildGraphData(articles, documentNode),
     [articles, documentNode],
   );
   const drawNode = (node, ctx) => {
     const isDocument = node.type === 'document';
-    const radius = isDocument ? 9 : 5;
+    const isSection = node.type === 'section';
+    const radius = isDocument ? 9 : isSection ? Math.min(24, 10 + (node.size || 0) / 4) : 5;
     const isSelected = selectedNodeId && node.id === selectedNodeId;
 
     ctx.beginPath();
-    ctx.fillStyle = isDocument ? '#f97316' : '#38bdf8';
+    if (isDocument) {
+      ctx.fillStyle = '#f97316';
+    } else if (isSection) {
+      ctx.fillStyle = '#475569';
+    } else {
+      ctx.fillStyle = '#38bdf8';
+    }
     ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
     ctx.fill();
+
+    if (isSection) {
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '10px Inter, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(node.label.slice(0, 14), node.x, node.y);
+    }
 
     if (isSelected) {
       ctx.strokeStyle = '#fbbf24';
       ctx.lineWidth = 2;
       ctx.stroke();
     }
-
   };
 
   const paintPointer = (node, color, ctx) => {
     const isDocument = node.type === 'document';
-    const radius = isDocument ? 9 : 5;
+    const isSection = node.type === 'section';
+    const radius = isDocument ? 9 : isSection ? 18 : 5;
     ctx.beginPath();
     ctx.fillStyle = color;
     ctx.arc(node.x, node.y, radius + 3, 0, 2 * Math.PI, false);
@@ -89,15 +156,20 @@ function Graph({ articles = [], documentNode, onNodeClick, selectedNodeId }) {
     <ForceGraph2D
       graphData={graphData}
       backgroundColor="#020617"
-      nodeLabel={(node) =>
-        node.type === 'document' ? 'Your Document' : node.headline
-      }
+      nodeLabel={(node) => {
+        if (node.type === 'document') return 'Your Document';
+        if (node.type === 'section') return node.label;
+        return node.headline;
+      }}
       nodeCanvasObject={drawNode}
       nodePointerAreaPaint={paintPointer}
       onNodeClick={(node) => onNodeClick?.(node)}
-      linkColor={(link) =>
-        link.type === 'doc-article' ? 'rgba(248,113,113,0.6)' : 'rgba(148,163,184,0.3)'
-      }
+      linkColor={(link) => {
+        if (link.type === 'doc-article') return 'rgba(248,113,113,0.6)';
+        if (link.type === 'mesh') return 'rgba(96,165,250,0.18)';
+        if (link.type === 'section-hub') return 'rgba(71,85,105,0.35)';
+        return 'rgba(148,163,184,0.3)';
+      }}
       linkDirectionalParticles={2}
       linkDirectionalParticleWidth={(link) =>
         link.type === 'doc-article' ? 2 : 0

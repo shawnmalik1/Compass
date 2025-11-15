@@ -21,6 +21,119 @@ import {
 } from '../api.js';
 import { normalizeArticles } from '../utils/articles.js';
 
+const STANCE_STYLES = {
+  supporting: { label: 'SUPPORTING', color: '#22c55e' },
+  opposing: { label: 'OPPOSING', color: '#ff4500' },
+  neutral: { label: 'NEUTRAL', color: '#94a3b8' },
+};
+
+function hexToRgba(hex, alpha = 0.3) {
+  const normalized = hex.replace('#', '');
+  const bigint = parseInt(normalized, 16);
+  const r = (bigint >> 16) & 255;
+  const g = (bigint >> 8) & 255;
+  const b = bigint & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function resolveStanceStyle(rawStance = '') {
+  const key = rawStance.toLowerCase();
+  if (key.includes('support')) return STANCE_STYLES.supporting;
+  if (key.includes('oppose') || key.includes('oppos') || key.includes('contra'))
+    return STANCE_STYLES.opposing;
+  if (key.includes('neutral') || key.includes('mixed'))
+    return STANCE_STYLES.neutral;
+  return {
+    label: (rawStance || 'PERSPECTIVE').toUpperCase(),
+    color: STANCE_STYLES.neutral.color,
+  };
+}
+
+function ViewpointCard({ item }) {
+  const { label, color } = resolveStanceStyle(item.stance);
+  const [spotlight, setSpotlight] = useState(null);
+
+  const background = spotlight
+    ? `radial-gradient(circle at ${spotlight.x}% ${spotlight.y}%, ${hexToRgba(color, 0.4)} 0%, transparent 45%), rgba(15,23,42,0.85)`
+    : 'rgba(15,23,42,0.85)';
+
+  const handleMove = (event) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = ((event.clientX - rect.left) / rect.width) * 100;
+    const y = ((event.clientY - rect.top) / rect.height) * 100;
+    setSpotlight({ x, y });
+  };
+
+  return (
+    <div
+      className="rounded-2xl border p-4"
+      style={{ borderColor: color, background }}
+      onMouseMove={handleMove}
+      onMouseLeave={() => setSpotlight(null)}
+    >
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-semibold" style={{ color }}>
+          {label}
+        </p>
+        {item.articles?.length ? (
+          <span className="text-xs text-slate-500">
+            {item.articles.length} article
+            {item.articles.length > 1 ? 's' : ''}
+          </span>
+        ) : null}
+      </div>
+      <p className="mt-2 text-slate-200">{item.summary}</p>
+      {item.articles?.length ? (
+        <ul className="mt-3 space-y-2 text-xs text-slate-400">
+          {item.articles.map((article) => (
+            <li key={article.id}>
+              <span className="block font-semibold text-slate-200">
+                {article.headline}
+              </span>
+              {article.web_url && (
+                <a
+                  href={article.web_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-compass-accent hover:underline"
+                >
+                  Open article
+                </a>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+function ViewpointComparison({ items = [] }) {
+  if (!items.length) {
+    return (
+      <div>
+        <p className="text-xs uppercase text-slate-500">
+          Viewpoint comparison
+        </p>
+        <p className="mt-2 text-slate-500">
+          No differing viewpoints available.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <p className="text-xs uppercase text-slate-500">Viewpoint comparison</p>
+      <div className="mt-3 flex flex-col gap-3">
+        {items.map((item, index) => (
+          <ViewpointCard key={`${item.stance || 'stance'}-${index}`} item={item} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function GraphPage() {
   const navigate = useNavigate();
   const {
@@ -51,6 +164,10 @@ function GraphPage() {
   const [mapSelectionSource, setMapSelectionSource] = useState(
     documentText ? 'document-upload' : 'none',
   );
+  const [insightTab, setInsightTab] = useState('overview');
+  const [loadingComparison, setLoadingComparison] = useState(false);
+  const [nodeAnalyses, setNodeAnalyses] = useState({});
+  const [insightsSource, setInsightsSource] = useState({ type: 'document' });
 
   useEffect(() => {
     let cancelled = false;
@@ -218,6 +335,10 @@ function GraphPage() {
   );
 
   useEffect(() => {
+    setInsightTab('overview');
+  }, [analysis]);
+
+  useEffect(() => {
     if (!mapUploadResult) {
       return;
     }
@@ -348,10 +469,58 @@ function GraphPage() {
     try {
       const response = await analyzeDocument(documentText, uploadedArticles);
       setAnalysis(response);
+      setInsightsSource({ type: 'document' });
+      setInsightTab('overview');
     } catch (err) {
       setPanelError(err.message || 'Failed to generate insights.');
     } finally {
       setLoadingAnalysis(false);
+    }
+  };
+
+  const handleCompareSelected = async () => {
+    if (!documentText || !highlightedArticle) {
+      setPanelError('Select an article and upload a document to compare viewpoints.');
+      return;
+    }
+    setPanelError('');
+    setLoadingComparison(true);
+    try {
+      const compareArticles = [
+        highlightedArticle,
+        ...uploadedArticles.filter(
+          (article) => article.id !== highlightedArticle.id,
+        ),
+      ].slice(0, 20);
+      const response = await analyzeDocument(
+        documentText,
+        compareArticles,
+        {
+          id: highlightedArticle.id,
+          headline: highlightedArticle.headline,
+          summary:
+            highlightedArticle.abstract ||
+            highlightedArticle.snippet ||
+            '',
+          section:
+            highlightedArticle.section_name ||
+            highlightedArticle.section ||
+            '',
+        },
+      );
+      setNodeAnalyses((prev) => ({
+        ...prev,
+        [highlightedArticle.id]: response,
+      }));
+      setInsightsSource({
+        type: 'node',
+        articleId: highlightedArticle.id,
+      });
+      setInsightTab('overview');
+    } catch (err) {
+      setPanelError(err.message || 'Failed to compare viewpoints.');
+    } finally {
+      setLoadingComparison(false);
     }
   };
 
@@ -363,6 +532,32 @@ function GraphPage() {
       displayedArticles.find((article) => article.id === selectedNode.id) || null
     );
   }, [displayedArticles, selectedNode]);
+
+  const activeArticleForOverlay =
+    highlightedArticle ||
+    (selectedNode?.type === 'article'
+      ? selectedNode.data || selectedNode
+      : null);
+  const selectedArticleScore =
+    typeof activeArticleForOverlay?.score === 'number'
+      ? activeArticleForOverlay.score
+      : typeof selectedNode?.score === 'number'
+        ? selectedNode.score
+        : null;
+
+  const activeInsights = useMemo(() => {
+    if (
+      insightsSource?.type === 'node' &&
+      insightsSource.articleId &&
+      nodeAnalyses[insightsSource.articleId]
+    ) {
+      return nodeAnalyses[insightsSource.articleId];
+    }
+    return analysis;
+  }, [analysis, insightsSource, nodeAnalyses]);
+  const viewingNodeInsights =
+    insightsSource?.type === 'node' &&
+    Boolean(nodeAnalyses[insightsSource.articleId]);
 
   const selectedId = selectedNode?.id;
   const showingSampleGraph =
@@ -407,6 +602,20 @@ function GraphPage() {
     Boolean(documentNode) &&
     mapSelectionSource !== 'search' &&
     mapSelectionSource !== 'fine-cluster';
+
+  const overviewText =
+    activeInsights?.overview ||
+    activeInsights?.summary ||
+    'Overview unavailable.';
+  const explainLikeFiveText =
+    activeInsights?.explainLikeFive ||
+    activeInsights?.explainLikeImFive ||
+    'Friendly explanation unavailable.';
+  const selectedInsightText =
+    insightTab === 'overview' ? overviewText : explainLikeFiveText;
+  const viewpointComparisons = Array.isArray(activeInsights?.viewpointComparison)
+    ? activeInsights.viewpointComparison
+    : [];
 
   return (
     <div className="space-y-6">
@@ -505,7 +714,7 @@ function GraphPage() {
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
         <Card
-          title="Force Graph"
+          title="Zoomed Topic Graph"
           actions={
             <span className="text-xs uppercase tracking-wide text-slate-500">
               {graphCountLabel}
@@ -514,12 +723,58 @@ function GraphPage() {
         >
           <div className="relative h-[640px] w-full overflow-hidden rounded-2xl border border-slate-900/60 bg-slate-950/40">
             {displayedArticles.length ? (
-              <Graph
-                articles={displayedArticles}
-                documentNode={shouldShowDocumentNode ? documentNode : null}
-                onNodeClick={handleNodeClick}
-                selectedNodeId={selectedId}
-              />
+              <>
+                <Graph
+                  articles={displayedArticles}
+                  documentNode={shouldShowDocumentNode ? documentNode : null}
+                  onNodeClick={handleNodeClick}
+                  selectedNodeId={selectedId}
+                />
+                {selectedNode?.type === 'article' && (
+                  <>
+                    <div className="pointer-events-auto absolute bottom-4 left-4 z-10 flex flex-col gap-2">
+                      <button
+                        type="button"
+                        onClick={
+                          documentText
+                            ? handleCompareSelected
+                            : () =>
+                                setPanelError(
+                                  'Upload a document to compare viewpoints.',
+                                )
+                        }
+                        disabled={loadingComparison || !documentText}
+                        className="rounded-full border border-compass-primary px-4 py-2 text-xs font-semibold text-compass-primary hover:bg-compass-primary/10 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {loadingComparison
+                          ? 'Comparing…'
+                          : 'Generate insights for this node'}
+                      </button>
+                      {!documentText && (
+                        <p className="text-xs text-slate-500">
+                          Upload a document to compare against nodes.
+                        </p>
+                      )}
+                    </div>
+                    <div className="pointer-events-none absolute bottom-4 right-4 rounded-2xl border border-slate-800 bg-slate-900/80 px-4 py-3 text-sm text-slate-200 shadow-lg">
+                      <p className="text-xs uppercase tracking-wide text-slate-500">
+                        Similarity score
+                      </p>
+                      <p className="text-lg font-semibold text-slate-100">
+                        {documentText
+                          ? selectedArticleScore != null
+                            ? selectedArticleScore.toFixed(3)
+                            : 'Unavailable'
+                          : 'Upload a document'}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {highlightedArticle?.headline ||
+                          selectedNode.headline}
+                      </p>
+                    </div>
+                  </>
+                )}
+              </>
             ) : (
               <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-slate-800 text-sm text-slate-400">
                 {loadingFallback
@@ -541,15 +796,15 @@ function GraphPage() {
                 type="button"
                 onClick={handleAnalyze}
                 disabled={loadingAnalysis}
-                className="w-full rounded-lg bg-compass-primary/90 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-compass-primary disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center justify-center rounded-full bg-compass-primary/90 px-6 py-2 text-sm font-semibold text-slate-900 hover:bg-compass-primary disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {loadingAnalysis ? 'Generating...' : 'Generate Insights'}
               </button>
             </div>
           )}
 
-          {highlightedArticle && (
-            <div className="space-y-3 text-sm text-slate-300">
+            {highlightedArticle && (
+              <div className="space-y-3 text-sm text-slate-300">
               <div>
                 <p className="text-xs uppercase text-slate-500">Article</p>
                 <h2 className="text-lg font-semibold text-slate-50">
@@ -582,10 +837,20 @@ function GraphPage() {
                   href={highlightedArticle.web_url}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-sm font-semibold text-compass-primary hover:underline"
+                  className="mr-3 text-sm font-semibold text-compass-primary hover:underline"
                 >
-                  Open on NYT &rarr;
+                  Open on NYT
                 </a>
+              )}
+              {documentText && (
+                <button
+                  type="button"
+                  onClick={handleCompareSelected}
+                  disabled={loadingComparison}
+                  className="mt-3 inline-flex items-center justify-center rounded-full border border-compass-primary px-4 py-2 text-xs font-semibold text-compass-primary hover:bg-compass-primary/10 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {loadingComparison ? 'Comparing...' : 'Compare viewpoints'}
+                </button>
               )}
             </div>
           )}
@@ -598,24 +863,56 @@ function GraphPage() {
             </p>
           )}
 
-          {analysis && (
-            <div className="mt-6 space-y-4 text-sm text-slate-200">
+          {activeInsights && (
+            <div className="mt-6 space-y-6 text-sm text-slate-200">
               <div>
-                <p className="text-xs uppercase text-slate-500">Summary</p>
-                <p className="whitespace-pre-line text-slate-300">
-                  {analysis.summary}
+                <p className="text-xs uppercase text-slate-500">Insight views</p>
+                <div className="mt-2 flex gap-2">
+                  {[
+                    { id: 'overview', label: 'Overview' },
+                    { id: 'eli5', label: "Explain Like I'm Five" },
+                  ].map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setInsightTab(tab.id)}
+                      className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                        insightTab === tab.id
+                          ? 'bg-compass-primary/90 text-slate-900'
+                          : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-3 whitespace-pre-line text-slate-300">
+                  {selectedInsightText}
                 </p>
               </div>
-              <div>
-                <p className="text-xs uppercase text-slate-500">Insights</p>
-                <p className="whitespace-pre-line text-slate-300">
-                  {analysis.insights}
-                </p>
+
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <span>
+                  Viewing insights for{' '}
+                  {viewingNodeInsights ? 'selected article' : 'uploaded document'}
+                </span>
+                {viewingNodeInsights && (
+                  <button
+                    type="button"
+                    onClick={() => setInsightsSource({ type: 'document' })}
+                    className="text-compass-primary hover:underline"
+                  >
+                    Back to document insights
+                  </button>
+                )}
               </div>
+
+              <ViewpointComparison items={viewpointComparisons} />
+
               <div>
                 <p className="text-xs uppercase text-slate-500">Citations</p>
                 <ul className="space-y-2">
-                  {analysis.citations?.map((citation) => (
+                  {activeInsights.citations?.map((citation) => (
                     <li key={citation.id} className="text-slate-300">
                       <a
                         href={citation.web_url}
@@ -631,14 +928,6 @@ function GraphPage() {
                     </li>
                   )) || <p className="text-slate-500">No citations provided.</p>}
                 </ul>
-              </div>
-              <div>
-                <p className="text-xs uppercase text-slate-500">
-                  Opposing / complementary views
-                </p>
-                <p className="whitespace-pre-line text-slate-300">
-                  {analysis.opposingViews}
-                </p>
               </div>
             </div>
           )}

@@ -213,6 +213,28 @@ body {
   padding: 0;
 }
 
+.article-list-body {
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+@keyframes pipelinePulse {
+  0% {
+    transform: translateX(-60%);
+  }
+  50% {
+    transform: translateX(0%);
+  }
+  100% {
+    transform: translateX(60%);
+  }
+}
+
+.animation-pipeline {
+  animation: pipelinePulse 1.8s ease-in-out infinite;
+}
+
 .article-list li {
   padding: 8px 0;
   border-bottom: 1px solid #111827;

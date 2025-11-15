@@ -57,6 +57,8 @@ cd backend
 npm install
 cp .env.example .env  # add CLAUDE_API_KEY and optional overrides
 npm run dev           # or node index.js
+# or run both this service and FastAPI together:
+# npm run dev:all
 ```
 
 Key routes:

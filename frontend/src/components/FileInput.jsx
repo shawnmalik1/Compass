@@ -1,34 +1,75 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 
 function FileInput({ onSelect }) {
   const inputRef = useRef(null);
+  const [dragActive, setDragActive] = useState(false);
 
-  const handleFile = (event) => {
-    const file = event.target.files?.[0];
+  const handleFile = (fileList) => {
+    const file = fileList?.[0];
     if (file) {
       onSelect(file);
     }
   };
 
+  const handleInputChange = (event) => {
+    handleFile(event.target.files);
+  };
+
+  const handleDragOver = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setDragActive(true);
+  };
+
+  const handleDragLeave = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setDragActive(false);
+  };
+
+  const handleDrop = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setDragActive(false);
+    handleFile(event.dataTransfer.files);
+  };
+
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-dashed border-slate-700 bg-slate-900/40 p-6">
+    <div className="space-y-3 rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
       <input
         ref={inputRef}
         type="file"
         accept=".pdf,.txt"
-        onChange={handleFile}
+        onChange={handleInputChange}
         className="hidden"
       />
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
+        className={`flex min-h-[160px] flex-col items-center justify-center rounded-xl border-2 border-dashed text-sm transition ${
+          dragActive
+            ? 'border-compass-primary/70 bg-compass-primary/10 text-slate-100'
+            : 'border-slate-700 text-slate-300 hover:border-compass-primary/60 hover:bg-slate-900'
+        }`}
         onClick={() => inputRef.current?.click()}
-        className="rounded-lg bg-compass-primary px-4 py-2 text-sm font-semibold text-slate-900 shadow"
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            inputRef.current?.click();
+          }
+        }}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
       >
-        Select file
-      </button>
+        <p className="text-base font-semibold text-slate-100">
+          Drop a file anywhere in this panel
+        </p>
+        <p className="mt-1 text-xs text-slate-400">
+          or click to browse. Supports PDF or plain text.
+        </p>
+      </div>
       <p className="text-sm text-slate-400">
-        Currently supports PDF or plain text. Files are processed locally then
-        analyzed by the backend.
+        Files are processed locally, then analyzed by the backend.
       </p>
     </div>
   );
