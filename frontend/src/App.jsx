@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { fetchMap, fetchFineCluster, searchArticles, uploadText } from "./api";
 import KnowledgeMap from "./components/KnowledgeMap";
 import Sidebar from "./components/Sidebar";
+import Landing from "./components/Landing";
 
 function App() {
   const [mapData, setMapData] = useState(null);
@@ -13,6 +14,7 @@ function App() {
   const [searchResults, setSearchResults] = useState(null);
   const [uploadResult, setUploadResult] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [showLanding, setShowLanding] = useState(true);
 
   useEffect(() => {
     async function load() {
@@ -92,6 +94,15 @@ function App() {
 
   function handleClearUpload() {
     setUploadResult(null);
+  }
+
+  if (showLanding) {
+    return (
+      <Landing
+        mapReady={Boolean(mapData)}
+        onEnter={() => setShowLanding(false)}
+      />
+    );
   }
 
   return (
