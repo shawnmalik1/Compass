@@ -17,6 +17,7 @@ function App() {
   const [documentEmbedding, setDocumentEmbedding] = useState(null);
   const [nearestArticles, setNearestArticles] = useState([]);
   const [analysis, setAnalysis] = useState(null);
+  const [mapUploadResult, setMapUploadResult] = useState(null);
 
   const contextValue = useMemo(
     () => ({
@@ -28,8 +29,16 @@ function App() {
       setNearestArticles,
       analysis,
       setAnalysis,
+      mapUploadResult,
+      setMapUploadResult,
     }),
-    [documentText, documentEmbedding, nearestArticles, analysis],
+    [
+      documentText,
+      documentEmbedding,
+      nearestArticles,
+      analysis,
+      mapUploadResult,
+    ],
   );
 
   return (

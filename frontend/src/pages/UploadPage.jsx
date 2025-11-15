@@ -3,9 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import Card from '../components/Card.jsx';
 import FileInput from '../components/FileInput.jsx';
 import { uploadFile } from '../api/upload.js';
-import { embedText } from '../api/embed.js';
-import { getNearest } from '../api/nearest.js';
+import { uploadText as mapUploadText } from '../api.js';
 import { CompassContext } from '../App.jsx';
+import { normalizeArticles } from '../utils/articles.js';
 
 function PipelineStep({ label, active, done }) {
   return (
@@ -30,6 +30,7 @@ function UploadPage() {
     setDocumentEmbedding,
     setNearestArticles,
     setAnalysis,
+    setMapUploadResult,
   } = useContext(CompassContext);
   const [status, setStatus] = useState('Idle');
   const [error, setError] = useState('');
@@ -51,12 +52,17 @@ function UploadPage() {
       setPreview(cleanedText);
 
       setStatus('Embedding');
-      const { embedding } = await embedText(cleanedText);
-      setDocumentEmbedding(embedding);
+      const mapResult = await mapUploadText(cleanedText);
 
+      const normalizedNeighbors = normalizeArticles(mapResult.neighbors || []);
+      setDocumentEmbedding(null);
       setStatus('Finding Nearest');
-      const nearestArticles = await getNearest(embedding, 20);
-      setNearestArticles(nearestArticles);
+      setNearestArticles(normalizedNeighbors);
+      setMapUploadResult({
+        ...mapResult,
+        neighbors: normalizedNeighbors,
+        source: 'document-upload',
+      });
       setStatus('Complete');
       navigate('/graph');
     } catch (err) {

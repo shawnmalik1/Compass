@@ -9,7 +9,7 @@ function buildGraphData(articles, documentNode) {
     id: article.id,
     type: 'article',
     headline: article.headline,
-    section: article.section_name,
+    section: article.section_name || article.section,
     score: article.score,
     data: article,
   }));

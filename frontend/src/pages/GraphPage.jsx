@@ -1,10 +1,25 @@
-import { useContext, useEffect, useMemo, useState } from 'react';
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import { useNavigate } from 'react-router-dom';
 import Card from '../components/Card.jsx';
 import Graph from '../components/Graph.jsx';
 import { CompassContext } from '../App.jsx';
 import { analyzeDocument } from '../api/analyze.js';
 import { fetchArticlesMetadata } from '../api/articles.js';
+import KnowledgeMap from '../components/KnowledgeMap.jsx';
+import MapSidebar from '../components/MapSidebar.jsx';
+import {
+  fetchMap,
+  fetchFineCluster,
+  searchArticles,
+  uploadText as uploadMapText,
+} from '../api.js';
+import { normalizeArticles } from '../utils/articles.js';
 
 function GraphPage() {
   const navigate = useNavigate();
@@ -13,13 +28,56 @@ function GraphPage() {
     nearestArticles,
     analysis,
     setAnalysis,
+    mapUploadResult,
   } = useContext(CompassContext);
+
   const [selectedNode, setSelectedNode] = useState(null);
   const [panelError, setPanelError] = useState('');
   const [loadingAnalysis, setLoadingAnalysis] = useState(false);
   const [fallbackArticles, setFallbackArticles] = useState([]);
   const [fallbackError, setFallbackError] = useState('');
   const [loadingFallback, setLoadingFallback] = useState(false);
+
+  const [mapData, setMapData] = useState(null);
+  const [mapBounds, setMapBounds] = useState(null);
+  const [mapLoading, setMapLoading] = useState(false);
+  const [mapError, setMapError] = useState('');
+  const [activeCoarseId, setActiveCoarseId] = useState(null);
+  const [selectedFineCluster, setSelectedFineCluster] = useState(null);
+  const [fineClusterArticles, setFineClusterArticles] = useState([]);
+  const [hoveredNode, setHoveredNode] = useState(null);
+  const [searchResults, setSearchResults] = useState(null);
+  const [uploadResult, setUploadResult] = useState(null);
+  const [mapSelectionSource, setMapSelectionSource] = useState(
+    documentText ? 'document-upload' : 'none',
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadMap = async () => {
+      setMapLoading(true);
+      setMapError('');
+      try {
+        const data = await fetchMap();
+        if (cancelled) return;
+        setMapData(data);
+        setMapBounds(data.bounds);
+      } catch (err) {
+        if (!cancelled) {
+          setMapError(err.message || 'Failed to load map data.');
+        }
+      } finally {
+        if (!cancelled) {
+          setMapLoading(false);
+        }
+      }
+    };
+
+    loadMap();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const documentNode = useMemo(
     () =>
@@ -34,16 +92,74 @@ function GraphPage() {
     [documentText],
   );
 
+  const uploadedArticles = useMemo(
+    () => normalizeArticles(nearestArticles || []),
+    [nearestArticles],
+  );
+
+  const activeCoarseCluster = useMemo(
+    () =>
+      mapData?.coarse_clusters.find((cluster) => cluster.id === activeCoarseId) ||
+      null,
+    [mapData, activeCoarseId],
+  );
+
+  const searchArticlesList = useMemo(
+    () => normalizeArticles(searchResults?.results || []),
+    [searchResults],
+  );
+  const fineClusterArticlesList = useMemo(
+    () => normalizeArticles(fineClusterArticles || []),
+    [fineClusterArticles],
+  );
+  const uploadNeighbors = useMemo(
+    () => normalizeArticles(uploadResult?.neighbors || []),
+    [uploadResult],
+  );
+
+  const displayedArticles = useMemo(() => {
+    if (mapSelectionSource === 'search' && searchArticlesList.length) {
+      return searchArticlesList;
+    }
+    if (mapSelectionSource === 'fine-cluster' && fineClusterArticlesList.length) {
+      return fineClusterArticlesList;
+    }
+    if (mapSelectionSource === 'upload-text' && uploadNeighbors.length) {
+      return uploadNeighbors;
+    }
+    if (mapSelectionSource === 'document-upload' && uploadedArticles.length) {
+      return uploadedArticles;
+    }
+    if (uploadedArticles.length) {
+      return uploadedArticles;
+    }
+    return fallbackArticles;
+  }, [
+    mapSelectionSource,
+    searchArticlesList,
+    fineClusterArticlesList,
+    uploadNeighbors,
+    uploadedArticles,
+    fallbackArticles,
+  ]);
+
   useEffect(() => {
     if (documentNode) {
       setSelectedNode((prev) => prev || documentNode);
     }
   }, [documentNode]);
 
-  const uploadedArticles = useMemo(
-    () => (Array.isArray(nearestArticles) ? nearestArticles : []),
-    [nearestArticles],
-  );
+  useEffect(() => {
+    if (selectedNode?.type !== 'article') {
+      return;
+    }
+    const exists = displayedArticles.some(
+      (article) => article.id === selectedNode.id,
+    );
+    if (!exists && displayedArticles.length) {
+      setSelectedNode({ id: displayedArticles[0].id, type: 'article' });
+    }
+  }, [displayedArticles, selectedNode]);
 
   useEffect(() => {
     if (documentText || uploadedArticles.length || loadingFallback || fallbackArticles.length) {
@@ -57,7 +173,7 @@ function GraphPage() {
       try {
         const dataset = await fetchArticlesMetadata(50);
         if (!cancelled) {
-          setFallbackArticles(dataset);
+          setFallbackArticles(normalizeArticles(dataset));
         }
       } catch (err) {
         if (!cancelled) {
@@ -74,29 +190,148 @@ function GraphPage() {
     return () => {
       cancelled = true;
     };
-  }, [documentText, fallbackArticles.length, loadingFallback, uploadedArticles.length]);
+  }, [
+    documentText,
+    uploadedArticles.length,
+    fallbackArticles.length,
+    loadingFallback,
+  ]);
 
-  const displayedArticles = useMemo(
-    () => (uploadedArticles.length ? uploadedArticles : fallbackArticles),
-    [uploadedArticles, fallbackArticles],
+  const handleFineClusterClick = useCallback(
+    async (fineClusterId, source = 'fine-cluster') => {
+      if (fineClusterId == null) {
+        return;
+      }
+      setMapError('');
+      try {
+        const detail = await fetchFineCluster(fineClusterId);
+        setSelectedFineCluster(detail);
+        setFineClusterArticles(detail.articles || []);
+        setActiveCoarseId(detail.parent_coarse_id);
+        setSearchResults(null);
+        setMapSelectionSource(source);
+      } catch (err) {
+        setMapError(err.message || 'Failed to load subtopic.');
+      }
+    },
+    [],
   );
 
   useEffect(() => {
-    if (documentNode || selectedNode || !displayedArticles.length) {
+    if (!mapUploadResult) {
       return;
     }
-    const [firstArticle] = displayedArticles;
-    if (firstArticle) {
-      setSelectedNode({ id: firstArticle.id, type: 'article' });
+    const annotatedResult =
+      mapUploadResult.source === 'document-upload'
+        ? mapUploadResult
+        : { ...mapUploadResult, source: 'document-upload' };
+    setUploadResult(annotatedResult);
+    if (mapUploadResult.fine_cluster_id != null) {
+      handleFineClusterClick(
+        mapUploadResult.fine_cluster_id,
+        'document-upload',
+      );
+    } else {
+      setMapSelectionSource('document-upload');
     }
-  }, [documentNode, displayedArticles, selectedNode]);
+  }, [mapUploadResult, handleFineClusterClick]);
 
-  const highlightedArticle = useMemo(() => {
-    if (!selectedNode || selectedNode.type !== 'article') {
-      return null;
+  const handleSearch = useCallback(async (query) => {
+    const value = (query || '').trim();
+    if (!value) {
+      return;
     }
-    return displayedArticles.find((article) => article.id === selectedNode.id) || null;
-  }, [displayedArticles, selectedNode]);
+    setMapError('');
+    try {
+      const results = await searchArticles(value);
+      setSearchResults(results);
+      setSelectedFineCluster(null);
+      setFineClusterArticles([]);
+      setActiveCoarseId(null);
+      setMapSelectionSource('search');
+    } catch (err) {
+      setMapError(err.message || 'Search failed.');
+    }
+  }, []);
+
+  const handleClearSearch = useCallback(() => {
+    setSearchResults(null);
+    if (mapSelectionSource === 'search') {
+      setMapSelectionSource(documentText ? 'document-upload' : 'none');
+    }
+  }, [mapSelectionSource, documentText]);
+
+  const handleUpload = useCallback(
+    async (text) => {
+      const value = text.trim();
+      if (!value) {
+        return;
+      }
+      setMapError('');
+      try {
+        const response = await uploadMapText(value);
+        const annotated = {
+          ...response,
+          neighbors: normalizeArticles(response.neighbors || []),
+          source: 'upload-text',
+        };
+        setUploadResult(annotated);
+        setSearchResults(null);
+        setMapSelectionSource('upload-text');
+        if (response.fine_cluster_id != null) {
+          await handleFineClusterClick(response.fine_cluster_id, 'upload-text');
+        }
+      } catch (err) {
+        setMapError(err.message || 'Upload failed.');
+      }
+    },
+    [handleFineClusterClick],
+  );
+
+  const handleClearUpload = useCallback(() => {
+    if (uploadResult?.source !== 'upload-text') {
+      return;
+    }
+    if (mapUploadResult) {
+      const annotated =
+        mapUploadResult.source === 'document-upload'
+          ? mapUploadResult
+          : { ...mapUploadResult, source: 'document-upload' };
+      setUploadResult(annotated);
+      if (mapUploadResult.fine_cluster_id != null) {
+        handleFineClusterClick(
+          mapUploadResult.fine_cluster_id,
+          'document-upload',
+        );
+      } else {
+        setMapSelectionSource('document-upload');
+      }
+      return;
+    }
+    setUploadResult(null);
+    setMapSelectionSource(documentText ? 'document-upload' : 'none');
+    setSelectedFineCluster(null);
+    setFineClusterArticles([]);
+    setActiveCoarseId(null);
+  }, [uploadResult, mapUploadResult, documentText, handleFineClusterClick]);
+
+  const handleBackgroundClick = useCallback(() => {
+    setActiveCoarseId(null);
+    setSelectedFineCluster(null);
+    setFineClusterArticles([]);
+    setHoveredNode(null);
+    if (mapSelectionSource === 'fine-cluster') {
+      setMapSelectionSource(documentText ? 'document-upload' : 'none');
+    }
+  }, [mapSelectionSource, documentText]);
+
+  const handleCoarseClusterClick = useCallback((clusterId) => {
+    setActiveCoarseId(clusterId);
+    setSelectedFineCluster(null);
+    setFineClusterArticles([]);
+    setHoveredNode(null);
+    setMapSelectionSource('fine-cluster');
+  }, []);
 
   const handleNodeClick = (node) => {
     setPanelError('');
@@ -120,13 +355,58 @@ function GraphPage() {
     }
   };
 
+  const highlightedArticle = useMemo(() => {
+    if (!selectedNode || selectedNode.type !== 'article') {
+      return null;
+    }
+    return (
+      displayedArticles.find((article) => article.id === selectedNode.id) || null
+    );
+  }, [displayedArticles, selectedNode]);
+
   const selectedId = selectedNode?.id;
-  const showingSampleGraph = !uploadedArticles.length && !!fallbackArticles.length;
-  const graphCountLabel = documentNode
-    ? `${uploadedArticles.length} related articles`
-    : loadingFallback
-      ? 'Loading NYT sample...'
-      : `${displayedArticles.length} NYT sample articles`;
+  const showingSampleGraph =
+    !uploadedArticles.length &&
+    !searchArticlesList.length &&
+    !fineClusterArticlesList.length &&
+    !uploadNeighbors.length &&
+    !!fallbackArticles.length;
+
+  const graphCountLabel = useMemo(() => {
+    if (mapSelectionSource === 'search' && searchResults?.query) {
+      return `Search: ${searchResults.query}`;
+    }
+    if (mapSelectionSource === 'fine-cluster' && selectedFineCluster) {
+      return `Subtopic: ${selectedFineCluster.label}`;
+    }
+    if (mapSelectionSource === 'upload-text' && uploadResult) {
+      return 'Closest articles to pasted text';
+    }
+    if (documentNode) {
+      return `${uploadedArticles.length} related articles`;
+    }
+    if (loadingFallback) {
+      return 'Loading NYT sample...';
+    }
+    if (fallbackArticles.length) {
+      return `${fallbackArticles.length} NYT sample articles`;
+    }
+    return 'No graph data loaded';
+  }, [
+    mapSelectionSource,
+    searchResults,
+    selectedFineCluster,
+    uploadResult,
+    documentNode,
+    uploadedArticles.length,
+    loadingFallback,
+    fallbackArticles.length,
+  ]);
+
+  const shouldShowDocumentNode =
+    Boolean(documentNode) &&
+    mapSelectionSource !== 'search' &&
+    mapSelectionSource !== 'fine-cluster';
 
   return (
     <div className="space-y-6">
@@ -135,8 +415,8 @@ function GraphPage() {
           <div>
             <h1 className="text-3xl font-semibold">Graph Explorer</h1>
             <p className="text-slate-400">
-              Explore how NYT reporting clusters either around your document or across a general
-              sample of embeddings.
+              Explore NYT embeddings via the coarse map or your uploaded
+              document&rsquo;s neighborhood.
             </p>
           </div>
           {!documentText && (
@@ -155,12 +435,73 @@ function GraphPage() {
       {fallbackError && !uploadedArticles.length && (
         <p className="text-sm text-rose-400">{fallbackError}</p>
       )}
+      {mapError && mapLoading === false && !mapData && (
+        <p className="text-sm text-rose-400">{mapError}</p>
+      )}
       {showingSampleGraph && (
         <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-sm text-slate-300">
-          Viewing a sample slice of NYT articles. Upload a document to personalize the graph with
-          similarity scores to your work.
+          Viewing a sample slice of NYT articles. Upload a document or paste
+          text to personalize the graph with similarity scores.
         </div>
       )}
+
+      <Card
+        title="Knowledge Map"
+        actions={
+          <span className="text-xs uppercase tracking-wide text-slate-500">
+            Kaggle NYT dataset (FastAPI)
+          </span>
+        }
+      >
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="relative overflow-auto rounded-2xl border border-slate-900/60 bg-slate-950/40">
+            {mapData ? (
+              <div className="min-w-[900px]">
+                <KnowledgeMap
+                  bounds={mapBounds}
+                  coarseClusters={mapData.coarse_clusters}
+                  fineClusters={mapData.fine_clusters}
+                  activeCoarseId={activeCoarseId}
+                  selectedFineCluster={selectedFineCluster}
+                  fineClusterArticles={fineClusterArticles}
+                  onCoarseClick={handleCoarseClusterClick}
+                  onFineClick={handleFineClusterClick}
+                  onBackgroundClick={handleBackgroundClick}
+                  hoveredNode={hoveredNode}
+                  setHoveredNode={setHoveredNode}
+                />
+              </div>
+            ) : (
+              <div className="flex h-[420px] items-center justify-center text-sm text-slate-400">
+                {mapLoading ? 'Loading knowledge map...' : 'Map unavailable.'}
+              </div>
+            )}
+            {mapLoading && (
+              <div className="pointer-events-none absolute inset-2 flex items-center justify-center rounded-2xl bg-slate-950/80 text-sm text-slate-300">
+                Loading map...
+              </div>
+            )}
+          </div>
+          <div className="rounded-2xl border border-slate-900/60 bg-slate-950/60">
+            <MapSidebar
+              activeCoarseCluster={activeCoarseCluster}
+              selectedFineCluster={selectedFineCluster}
+              fineClusterArticles={fineClusterArticles}
+              hoveredNode={hoveredNode}
+              searchResults={searchResults}
+              uploadResult={uploadResult}
+              onSearch={handleSearch}
+              onClearSearch={handleClearSearch}
+              onUpload={handleUpload}
+              onClearUpload={handleClearUpload}
+              onFineClusterClick={handleFineClusterClick}
+            />
+          </div>
+        </div>
+        {mapError && mapData && (
+          <p className="mt-4 text-sm text-rose-400">{mapError}</p>
+        )}
+      </Card>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
         <Card
@@ -175,7 +516,7 @@ function GraphPage() {
             {displayedArticles.length ? (
               <Graph
                 articles={displayedArticles}
-                documentNode={documentNode}
+                documentNode={shouldShowDocumentNode ? documentNode : null}
                 onNodeClick={handleNodeClick}
                 selectedNodeId={selectedId}
               />
@@ -183,7 +524,7 @@ function GraphPage() {
               <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-slate-800 text-sm text-slate-400">
                 {loadingFallback
                   ? 'Loading sample graph...'
-                  : 'Upload a document to build a personalized graph.'}
+                  : 'Upload a document or use the knowledge map to populate this graph.'}
               </div>
             )}
           </div>
@@ -215,13 +556,24 @@ function GraphPage() {
                   {highlightedArticle.headline}
                 </h2>
               </div>
-              <p className="text-slate-400">{highlightedArticle.abstract || highlightedArticle.snippet}</p>
+              <p className="text-slate-400">
+                {highlightedArticle.abstract || highlightedArticle.snippet}
+              </p>
               <div className="text-xs text-slate-500">
-                <p>Section: {highlightedArticle.section_name || 'N/A'}</p>
+                <p>
+                  Section:{' '}
+                  {highlightedArticle.section_name ||
+                    highlightedArticle.section ||
+                    'N/A'}
+                </p>
                 <p>Published: {highlightedArticle.pub_date || 'N/A'}</p>
                 <p>
                   {documentNode
-                    ? `Similarity: ${highlightedArticle.score?.toFixed(3)}`
+                    ? `Similarity: ${
+                        typeof highlightedArticle.score === 'number'
+                          ? highlightedArticle.score.toFixed(3)
+                          : 'Upload text for scores'
+                      }`
                     : 'Similarity: Upload a document to calculate'}
                 </p>
               </div>
@@ -240,8 +592,9 @@ function GraphPage() {
 
           {!documentNode && !highlightedArticle && (
             <p className="text-sm text-slate-400">
-              Select a node in the graph to inspect article metadata. Upload a document to enable
-              guardrailed insight generation.
+              Select a node in the graph to inspect article metadata. Upload a
+              document or paste free-form text to enable guardrailed insight
+              generation.
             </p>
           )}
 
@@ -249,11 +602,15 @@ function GraphPage() {
             <div className="mt-6 space-y-4 text-sm text-slate-200">
               <div>
                 <p className="text-xs uppercase text-slate-500">Summary</p>
-                <p className="whitespace-pre-line text-slate-300">{analysis.summary}</p>
+                <p className="whitespace-pre-line text-slate-300">
+                  {analysis.summary}
+                </p>
               </div>
               <div>
                 <p className="text-xs uppercase text-slate-500">Insights</p>
-                <p className="whitespace-pre-line text-slate-300">{analysis.insights}</p>
+                <p className="whitespace-pre-line text-slate-300">
+                  {analysis.insights}
+                </p>
               </div>
               <div>
                 <p className="text-xs uppercase text-slate-500">Citations</p>
@@ -268,13 +625,17 @@ function GraphPage() {
                       >
                         {citation.headline}
                       </a>
-                      <span className="block text-xs text-slate-500">{citation.reason}</span>
+                      <span className="block text-xs text-slate-500">
+                        {citation.reason}
+                      </span>
                     </li>
                   )) || <p className="text-slate-500">No citations provided.</p>}
                 </ul>
               </div>
               <div>
-                <p className="text-xs uppercase text-slate-500">Opposing / complementary views</p>
+                <p className="text-xs uppercase text-slate-500">
+                  Opposing / complementary views
+                </p>
                 <p className="whitespace-pre-line text-slate-300">
                   {analysis.opposingViews}
                 </p>
@@ -288,5 +649,3 @@ function GraphPage() {
 }
 
 export default GraphPage;
-
-
