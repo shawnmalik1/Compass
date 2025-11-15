@@ -10,9 +10,9 @@ function UploadPanel({ onUpload, uploadResult, onFineClusterClick, onClear }) {
 
   return (
     <div className="upload-panel">
-      <h3>Upload / Paste Document</h3>
+      <h3>Search Knowledge Map</h3>
       <p className="small">
-        Paste an article, reading, or essay. We’ll show where it lands in the
+        Paste an article, reading, essay, or enter keywords. We’ll show where it lands in the
         knowledge map.
       </p>
       <form onSubmit={handleSubmit}>
