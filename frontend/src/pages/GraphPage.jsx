@@ -16,8 +16,8 @@ import MapSidebar from '../components/MapSidebar.jsx';
 import {
   fetchMap,
   fetchFineCluster,
-  searchArticles,
   uploadText as uploadMapText,
+  createCitation,
 } from '../api.js';
 import { normalizeArticles } from '../utils/articles.js';
 
@@ -159,7 +159,6 @@ function GraphPage() {
   const [selectedFineCluster, setSelectedFineCluster] = useState(null);
   const [fineClusterArticles, setFineClusterArticles] = useState([]);
   const [hoveredNode, setHoveredNode] = useState(null);
-  const [searchResults, setSearchResults] = useState(null);
   const [uploadResult, setUploadResult] = useState(null);
   const [mapSelectionSource, setMapSelectionSource] = useState(
     documentText ? 'document-upload' : 'none',
@@ -168,6 +167,12 @@ function GraphPage() {
   const [loadingComparison, setLoadingComparison] = useState(false);
   const [nodeAnalyses, setNodeAnalyses] = useState({});
   const [insightsSource, setInsightsSource] = useState({ type: 'document' });
+  const [citationState, setCitationState] = useState({
+    articleId: null,
+    text: '',
+    loading: false,
+    error: null,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -221,10 +226,6 @@ function GraphPage() {
     [mapData, activeCoarseId],
   );
 
-  const searchArticlesList = useMemo(
-    () => normalizeArticles(searchResults?.results || []),
-    [searchResults],
-  );
   const fineClusterArticlesList = useMemo(
     () => normalizeArticles(fineClusterArticles || []),
     [fineClusterArticles],
@@ -235,9 +236,6 @@ function GraphPage() {
   );
 
   const displayedArticles = useMemo(() => {
-    if (mapSelectionSource === 'search' && searchArticlesList.length) {
-      return searchArticlesList;
-    }
     if (mapSelectionSource === 'fine-cluster' && fineClusterArticlesList.length) {
       return fineClusterArticlesList;
     }
@@ -253,7 +251,6 @@ function GraphPage() {
     return fallbackArticles;
   }, [
     mapSelectionSource,
-    searchArticlesList,
     fineClusterArticlesList,
     uploadNeighbors,
     uploadedArticles,
@@ -325,7 +322,6 @@ function GraphPage() {
         setSelectedFineCluster(detail);
         setFineClusterArticles(detail.articles || []);
         setActiveCoarseId(detail.parent_coarse_id);
-        setSearchResults(null);
         setMapSelectionSource(source);
       } catch (err) {
         setMapError(err.message || 'Failed to load subtopic.');
@@ -357,31 +353,6 @@ function GraphPage() {
     }
   }, [mapUploadResult, handleFineClusterClick]);
 
-  const handleSearch = useCallback(async (query) => {
-    const value = (query || '').trim();
-    if (!value) {
-      return;
-    }
-    setMapError('');
-    try {
-      const results = await searchArticles(value);
-      setSearchResults(results);
-      setSelectedFineCluster(null);
-      setFineClusterArticles([]);
-      setActiveCoarseId(null);
-      setMapSelectionSource('search');
-    } catch (err) {
-      setMapError(err.message || 'Search failed.');
-    }
-  }, []);
-
-  const handleClearSearch = useCallback(() => {
-    setSearchResults(null);
-    if (mapSelectionSource === 'search') {
-      setMapSelectionSource(documentText ? 'document-upload' : 'none');
-    }
-  }, [mapSelectionSource, documentText]);
-
   const handleUpload = useCallback(
     async (text) => {
       const value = text.trim();
@@ -397,7 +368,6 @@ function GraphPage() {
           source: 'upload-text',
         };
         setUploadResult(annotated);
-        setSearchResults(null);
         setMapSelectionSource('upload-text');
         if (response.fine_cluster_id != null) {
           await handleFineClusterClick(response.fine_cluster_id, 'upload-text');
@@ -458,6 +428,34 @@ function GraphPage() {
     setPanelError('');
     setSelectedNode(node);
   };
+
+  const handleGenerateCitation = useCallback(async (article) => {
+    if (!article) {
+      return;
+    }
+    setCitationState({
+      articleId: article.id,
+      text: '',
+      loading: true,
+      error: null,
+    });
+    try {
+      const response = await createCitation(article);
+      setCitationState({
+        articleId: article.id,
+        text: response.citation,
+        loading: false,
+        error: null,
+      });
+    } catch (err) {
+      setCitationState({
+        articleId: article.id,
+        text: '',
+        loading: false,
+        error: err.message || 'Failed to generate citation.',
+      });
+    }
+  }, []);
 
   const handleAnalyze = async () => {
     if (!documentText || !uploadedArticles.length) {
@@ -562,15 +560,11 @@ function GraphPage() {
   const selectedId = selectedNode?.id;
   const showingSampleGraph =
     !uploadedArticles.length &&
-    !searchArticlesList.length &&
     !fineClusterArticlesList.length &&
     !uploadNeighbors.length &&
     !!fallbackArticles.length;
 
   const graphCountLabel = useMemo(() => {
-    if (mapSelectionSource === 'search' && searchResults?.query) {
-      return `Search: ${searchResults.query}`;
-    }
     if (mapSelectionSource === 'fine-cluster' && selectedFineCluster) {
       return `Subtopic: ${selectedFineCluster.label}`;
     }
@@ -589,7 +583,6 @@ function GraphPage() {
     return 'No graph data loaded';
   }, [
     mapSelectionSource,
-    searchResults,
     selectedFineCluster,
     uploadResult,
     documentNode,
@@ -599,9 +592,7 @@ function GraphPage() {
   ]);
 
   const shouldShowDocumentNode =
-    Boolean(documentNode) &&
-    mapSelectionSource !== 'search' &&
-    mapSelectionSource !== 'fine-cluster';
+    Boolean(documentNode) && mapSelectionSource !== 'fine-cluster';
 
   const overviewText =
     activeInsights?.overview ||
@@ -697,13 +688,13 @@ function GraphPage() {
               selectedFineCluster={selectedFineCluster}
               fineClusterArticles={fineClusterArticles}
               hoveredNode={hoveredNode}
-              searchResults={searchResults}
               uploadResult={uploadResult}
-              onSearch={handleSearch}
-              onClearSearch={handleClearSearch}
+              mappedArticles={uploadNeighbors}
               onUpload={handleUpload}
               onClearUpload={handleClearUpload}
               onFineClusterClick={handleFineClusterClick}
+              onGenerateCitation={handleGenerateCitation}
+              citationState={citationState}
             />
           </div>
         </div>
