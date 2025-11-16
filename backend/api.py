@@ -1,5 +1,3 @@
-import os
-from datetime import datetime
 from fastapi import FastAPI, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -10,8 +8,6 @@ import joblib
 import ast
 
 from sentence_transformers import SentenceTransformer
-from openai import OpenAI
-from dotenv import load_dotenv
 
 from config import DATA_DIR, EMBEDDING_MODEL_NAME
 
@@ -77,67 +73,8 @@ coarse_cluster_labels = index["coarse_cluster_labels"]
 fine_cluster_labels = index["fine_cluster_labels"]
 map_bounds = index["map_bounds"]
 
-load_dotenv()
 embed_model = SentenceTransformer(EMBEDDING_MODEL_NAME)
 emb_norm = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
-
-
-def _sample_cluster_texts(mask: np.ndarray, limit: int = 5):
-    idxs = np.where(mask)[0]
-    samples = []
-    for i in idxs:
-        art = articles[i]
-        headline = _clean_headline(art.get("headline"))
-        if headline:
-            samples.append(headline)
-        if len(samples) >= limit:
-            break
-    return samples
-
-
-def _ai_label(default_label: str, samples: List[str], level: str):
-    if not openai_client or not samples:
-        return default_label
-    prompt = (
-        "You rename clusters inside a knowledge map built from New York Times articles.\n"
-        f"Provide a concise {level} label (max 4 words, Title Case) based on these sample headlines:\n"
-        + "\n".join(f"- {s}" for s in samples)
-        + f"\nExisting label: {default_label}\nReturn only the improved label."
-    )
-    try:
-        response = openai_client.responses.create(
-            model="gpt-4o-mini",
-            input=prompt,
-        )
-        text = (response.output_text or "").strip()
-        return text if text else default_label
-    except Exception:
-        return default_label
-
-
-def _apply_ai_labels():
-    if not openai_client:
-        return
-    for cluster in coarse_clusters:
-        cid = cluster["id"]
-        samples = _sample_cluster_texts(coarse_ids == cid)
-        if not samples:
-            continue
-        new_label = _ai_label(cluster["label"], samples, "topic")
-        cluster["label"] = new_label
-        coarse_cluster_labels[cid] = new_label
-    for cluster in fine_clusters:
-        fid = cluster["id"]
-        samples = _sample_cluster_texts(fine_ids == fid)
-        if not samples:
-            continue
-        new_label = _ai_label(cluster["label"], samples, "subtopic")
-        cluster["label"] = new_label
-        fine_cluster_labels[fid] = new_label
-
-_apply_ai_labels()
 
 
 class MapBounds(BaseModel):
@@ -166,7 +103,6 @@ class ArticleSummary(BaseModel):
     abstract: Optional[str] = None
     pub_date: Optional[str] = None
     section: Optional[str] = None
-    byline: Optional[str] = None
     url: Optional[str] = None
     coarse_cluster_id: Optional[int] = None
     fine_cluster_id: Optional[int] = None
@@ -201,19 +137,6 @@ class UploadResult(BaseModel):
     parent_coarse_id: int
     parent_coarse_label: str
     neighbors: List[ArticleSummary]
-
-
-class CitationRequest(BaseModel):
-    headline: str
-    pub_date: Optional[str] = None
-    url: Optional[str] = None
-    section: Optional[str] = None
-    authors: Optional[List[str]] = None
-    source: Optional[str] = "The New York Times"
-
-
-class CitationResponse(BaseModel):
-    citation: str
 
 
 @app.get("/api/map", response_model=MapResponse)
@@ -254,7 +177,6 @@ def get_fine_cluster(fine_id: int):
                 abstract=_clean_field(art.get("abstract")),
                 pub_date=_clean_field(art.get("pub_date")),
                 section=_clean_field(art.get("section")),
-                byline=_clean_field(art.get("byline")),
                 url=_clean_field(art.get("url")),
                 coarse_cluster_id=int(coarse_ids[i]),
                 fine_cluster_id=int(fine_ids[i]),
@@ -290,7 +212,6 @@ def search_articles(q: str, k: int = 20):
                 abstract=_clean_field(art.get("abstract")),
                 pub_date=_clean_field(art.get("pub_date")),
                 section=_clean_field(art.get("section")),
-                byline=_clean_field(art.get("byline")),
                 url=_clean_field(art.get("url")),
                 coarse_cluster_id=int(coarse_ids[i]),
                 fine_cluster_id=int(fine_ids[i]),
@@ -335,7 +256,6 @@ async def upload_text(text: str = Form(...)):
                 abstract=_clean_field(art.get("abstract")),
                 pub_date=_clean_field(art.get("pub_date")),
                 section=_clean_field(art.get("section")),
-                byline=_clean_field(art.get("byline")),
                 url=_clean_field(art.get("url")),
                 coarse_cluster_id=int(coarse_ids[i]),
                 fine_cluster_id=int(fine_ids[i]),
@@ -353,107 +273,3 @@ async def upload_text(text: str = Form(...)):
         parent_coarse_label=parent_label,
         neighbors=neighbors,
     )
-
-
-MONTH_NAMES = [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-]
-
-
-def _format_author(name: str) -> str:
-    if not name:
-        return ""
-    parts = name.strip().replace("By ", "").replace("by ", "").split()
-    if len(parts) == 1:
-        return parts[0].rstrip(",")
-    last = parts[-1].rstrip(",")
-    initials = [p[0].upper() + "." for p in parts[:-1] if p]
-    return f"{last}, {' '.join(initials)}"
-
-
-def _format_author_list(authors: List[str]) -> Optional[str]:
-    formatted = [fmt for fmt in (_format_author(a) for a in authors) if fmt]
-    if not formatted:
-        return None
-    if len(formatted) == 1:
-        return formatted[0]
-    if len(formatted) == 2:
-        return " & ".join(formatted)
-    return ", ".join(formatted[:-1]) + f", & {formatted[-1]}"
-
-
-def _format_date(date_str: Optional[str]) -> str:
-    if not date_str:
-        return "n.d."
-    try:
-        clean = date_str.replace("Z", "+00:00")
-        dt = datetime.fromisoformat(clean)
-        month = MONTH_NAMES[dt.month - 1]
-        day = dt.day
-        return f"{dt.year}, {month} {day}"
-    except Exception:
-        return date_str
-
-
-def _clean_title(title: Optional[str]) -> str:
-    if not title:
-        return "Untitled article"
-    title = title.strip()
-    return title[:-1] if title.endswith(".") else title
-
-
-def _fallback_citation(req: CitationRequest) -> str:
-    author_text = _format_author_list(req.authors or [])
-    date_text = _format_date(req.pub_date)
-    title = _clean_title(req.headline)
-    source = req.source or "The New York Times"
-    url = req.url or ""
-    if author_text:
-        citation = f"{author_text} ({date_text}). {title}. {source}. {url}".strip()
-    else:
-        citation = f"{title}. ({date_text}). {source}. {url}".strip()
-    return citation
-
-
-def _generate_citation(req: CitationRequest) -> str:
-    fallback = _fallback_citation(req)
-    if not openai_client:
-        return fallback
-    prompt = (
-        "Format the following metadata as an APA 7 reference for a news article.\n"
-        "Use the pattern: Author, A. A., & Author, B. B. (Year, Month Day). Title of article. Source. URL\n"
-        "If no author is available, start with the title. Keep capitalization per APA rules. "
-        "Return only the citation line.\n"
-        f"Headline: {req.headline}\n"
-        f"Authors: {', '.join(req.authors or [])}\n"
-        f"Publication date: {req.pub_date}\n"
-        f"Section: {req.section}\n"
-        f"Source: {req.source}\n"
-        f"URL: {req.url}"
-    )
-    try:
-        response = openai_client.responses.create(
-            model="gpt-4o-mini",
-            input=prompt,
-        )
-        text = (response.output_text or "").strip()
-        return text or fallback
-    except Exception:
-        return fallback
-
-
-@app.post("/api/citation", response_model=CitationResponse)
-def create_citation(req: CitationRequest):
-    citation = _generate_citation(req)
-    return CitationResponse(citation=citation)

@@ -1,4 +1,5 @@
 import React from 'react';
+import SearchBar from './SearchBar.jsx';
 import UploadPanel from './UploadPanel.jsx';
 import ArticleList from './ArticleList.jsx';
 
@@ -7,18 +8,16 @@ function MapSidebar({
   selectedFineCluster,
   fineClusterArticles,
   hoveredNode,
+  searchResults,
   uploadResult,
-  mappedArticles = [],
+  onSearch,
+  onClearSearch,
   onUpload,
   onClearUpload,
   onFineClusterClick,
-  onGenerateCitation,
-  citationState,
 }) {
   const showTopicPreview =
     hoveredNode && hoveredNode.type === 'coarse' && !selectedFineCluster;
-  const showUploadArticles =
-    uploadResult?.source === 'upload-text' && mappedArticles.length > 0;
 
   return (
     <div className="sidebar">
@@ -27,25 +26,23 @@ function MapSidebar({
         Zoom from big-picture themes down to specific subtopics and articles.
       </p>
 
-      {selectedFineCluster && (
+      <SearchBar onSearch={onSearch} onClear={onClearSearch} />
+
+      {searchResults && (
+        <ArticleList
+          title={`Search: "${searchResults.query}"`}
+          articles={searchResults.results}
+        />
+      )}
+
+      {!searchResults && selectedFineCluster && (
         <ArticleList
           title={`Subtopic: ${selectedFineCluster.label}`}
           articles={(fineClusterArticles || []).slice(0, 80)}
-          onCite={onGenerateCitation}
-          citationState={citationState}
         />
       )}
 
-      {!selectedFineCluster && showUploadArticles && (
-        <ArticleList
-          title="Mapped text matches"
-          articles={mappedArticles}
-          onCite={onGenerateCitation}
-          citationState={citationState}
-        />
-      )}
-
-      {showTopicPreview && !selectedFineCluster && !showUploadArticles && (
+      {showTopicPreview && !searchResults && (
         <div className="hover-info">
           <h3>Topic preview</h3>
           <div className="hover-label">{hoveredNode.label}</div>
@@ -55,9 +52,7 @@ function MapSidebar({
         </div>
       )}
 
-      {activeCoarseCluster &&
-        !selectedFineCluster &&
-        !showUploadArticles && (
+      {activeCoarseCluster && !selectedFineCluster && !searchResults && (
         <div className="hover-info">
           <h3>Selected topic</h3>
           <div className="hover-label">{activeCoarseCluster.label}</div>
