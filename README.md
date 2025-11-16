@@ -15,6 +15,15 @@ Instead of scrolling feeds, you can visually explore how ideas relate, drill dow
 - **Zoom into concepts, not noise.** When you enter a cluster the surrounding map fades, keeping focus on that topic's inner structure.
 
 ## Core capabilities
+<<<<<<< HEAD
+=======
+- 📍 **Hierarchical topic map** – 40 coarse clusters and 200 fine clusters rendered with D3, complete with exploded “subtopic orbits” for legibility.
+- 🔍 **Semantic search** – SentenceTransformer embeddings let you query ideas, not just keywords.
+- ✍️ **Document + PDF drop-in** – Paste text or upload a PDF/doc and the backend places it inside the nearest fine cluster, listing the most similar NYT articles.
+- 🏷️ **AI-assisted naming** – OpenAI refines auto-generated cluster names so labels sound like real research topics instead of raw metadata.
+- 🧾 **APA citations on demand** – Every article in the sidebar has a Cite button that asks GPT-4o mini for a clean APA reference you can drop into a paper.
+- 🧠 **Research-first UX** – Focus mode hides unrelated bubbles, tooltips summarize subtopics, and the sidebar pivots between search, cluster deep dives, and upload insights.
+>>>>>>> version1
 
 - **Hierarchical topic map** - D3 renders exploded "subtopic orbits" for legibility when you zoom into fine clusters.
 - **Semantic search** - SentenceTransformer embeddings let you query ideas instead of raw keywords.
@@ -63,6 +72,7 @@ pip install -r requirements.txt
 python build_index.py            # one-time: builds embeddings, clusters, & 2D layout
 uvicorn api:app --reload --port 8000
 ```
+> **Note:** Set `OPENAI_API_KEY` in your environment (or a `.env`) before running `build_index.py` or the API to enable AI naming + citation generation. If the key is missing, the app falls back to heuristic labels and manual citations.
 
 <<<<<<< HEAD
 `build_index.py` expects the Kaggle NYT CSV + embeddings referenced in `config.py`. It creates `backend/data/index.pkl`, which FastAPI loads on startup to serve:
