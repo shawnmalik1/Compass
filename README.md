@@ -9,6 +9,7 @@ Instead of scrolling feeds, you can visually explore how ideas relate, drill dow
 
 ## Why it matters
 
+<<<<<<< HEAD
 - **Accelerate research.** Coarse/fine topic hierarchies make it easy to jump from a broad beat to specific threads in seconds.
 - **Power student projects.** Upload a paper draft or summary and instantly discover matching NYT coverage and suggested citations.
 - **Zoom into concepts, not noise.** When you enter a cluster the surrounding map fades, keeping focus on that topic's inner structure.
@@ -19,6 +20,26 @@ Instead of scrolling feeds, you can visually explore how ideas relate, drill dow
 - **Semantic search** - SentenceTransformer embeddings let you query ideas instead of raw keywords.
 - **Document drop-in** - Paste text or upload a PDF, place it inside the nearest fine cluster, and list the most similar NYT articles.
 - **Research-first UX** - Focus mode hides unrelated bubbles, tooltips summarize subtopics, and the sidebar pivots between search, cluster deep dives, upload results, and your force graph insights.
+=======
+- **Accelerate research.** Surfacing coarse → fine topic hierarchies makes it easy to jump from “health” to “stem cell therapy” in seconds.
+- **Power student projects.** Upload a paper draft or reading summary and instantly discover the closest coverage, citations, and context.
+- **Zoom into concepts, not noise.** When you enter a cluster the surrounding map fades, keeping your attention on that topic’s inner structure.
+
+## Core capabilities
+
+- 📍 **Hierarchical topic map** – 40 coarse clusters and 200 fine clusters rendered with D3, complete with exploded “subtopic orbits” for legibility.
+- 🔍 **Semantic search** – SentenceTransformer embeddings let you query ideas, not just keywords.
+- ✍️ **Document + PDF drop-in** – Paste text or upload a PDF/doc and the backend places it inside the nearest fine cluster, listing the most similar NYT articles.
+- 🏷️ **AI-assisted naming** – OpenAI refines auto-generated cluster names so labels sound like real research topics instead of raw metadata.
+- 🧾 **APA citations on demand** – Every article in the sidebar has a AI-generated Cite button for a clean APA reference you can drop into a paper.
+- 🧠 **Research-first UX** – Focus mode hides unrelated bubbles, tooltips summarize subtopics, and the sidebar pivots between search, cluster deep dives, and upload insights.
+
+## Stack at a glance
+
+- **Backend:** FastAPI, sentence-transformers, scikit-learn (MiniBatchKMeans, t-SNE), pandas/joblib for preprocessing and persistence.
+- **Frontend:** React + Vite, custom D3 zoom/drag rendering, Tailwind-inspired styling in plain CSS.
+- **Data:** Kaggle NYT article sample embedded and clustered offline via `build_index.py`.
+>>>>>>> version1
 
 ## Repository layout
 
@@ -43,6 +64,7 @@ python build_index.py            # one-time: builds embeddings, clusters, & 2D l
 uvicorn api:app --reload --port 8000
 ```
 
+<<<<<<< HEAD
 `build_index.py` expects the Kaggle NYT CSV + embeddings referenced in `config.py`. It creates `backend/data/index.pkl`, which FastAPI loads on startup to serve:
 
 - `GET /api/map` - coarse/fine cluster geometry + bounds
@@ -70,6 +92,9 @@ Key routes:
 - `GET /articles` - provides a sample slice for demo/fallback graphs
 
 Utilities in `backend/scripts/` help trim or reformat the NYT CSV so the Python side stays fast.
+=======
+> **Note:** Set `OPENAI_API_KEY` in your environment (or a `.env`) before running `build_index.py` or the API to enable AI naming + citation generation. If the key is missing, the app falls back to heuristic labels and manual citations.
+>>>>>>> version1
 
 ## Frontend
 
