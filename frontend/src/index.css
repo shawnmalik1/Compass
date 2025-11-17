@@ -291,6 +291,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  max-height: 160px;
+  overflow-y: auto;
 }
 .faculty-member {
   border-radius: 10px;
