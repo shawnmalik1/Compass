@@ -81,6 +81,7 @@ uvicorn api:app --reload --port 8000
 - `GET /api/fine_cluster/:id` - fine cluster metadata + article coordinates
 - `GET /api/search?q=...` - semantic search over the embedded articles
 - `POST /api/upload` - accept raw text, embed it with `sentence-transformers`, return top neighbors plus the closest fine cluster
+- `GET /api/faculty?q=topic` - scrapes UVA People Search for faculty whose bios mention the provided topic keywords (used to surface related experts in the sidebar)
 
 ### 2. Node/Express insight service
 
@@ -97,7 +98,7 @@ Key routes:
 
 - `POST /upload` - Multer + pdf/text extraction, returns `{ text }`
 - `POST /embed` - Calls Claude embeddings (kept for future use)
-- `POST /nearest` - Cosine search over `nyt_embeddings.json` (still available as a fallback)
+- `POST /nearest` - Cosine search over whatever NYT embedding JSON you optionally drop in (`backend/index.js` loads it when present)
 - `POST /analyze` - Sends a structured prompt to Claude, anchored to whatever `nearestArticles` the frontend sends
 - `GET /articles` - provides a sample slice for demo/fallback graphs
 
@@ -134,7 +135,7 @@ Tailwind (`src/styles/globals.css`) handles the overall shell, while `src/index.
 ## Notes & tips
 
 - Need to refresh the Kaggle-derived dataset? Update `config.py` and re-run `python build_index.py`. It writes a new `data/index.pkl` the API will load on restart.
-- If you swap out the Node `nyt_embeddings.json`, keep the schema identical so `/articles` and `/analyze` continue to work.
+- If you provide your own NYT embedding JSON, keep the `{ embedding: number[], ...metadata }` schema identical so `/articles` and `/analyze` continue to work (otherwise those routes simply return empty arrays).
 - The Vite dev server proxies both APIs, so no CORS fiddling is required locally. For production replicate the `/api` vs `/upload|/analyze` routing with your reverse proxy.
 - The frontend normalizes article objects (section name, url, snippet) everywhere before handing them to Claude, react-force-graph, or the knowledge-map sidebar. That means both backends can evolve independently as long as they return the expected fields.
 

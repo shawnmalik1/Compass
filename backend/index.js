@@ -20,6 +20,13 @@ const datasetPath = path.join(__dirname, 'nyt_embeddings.json');
 global.nytArticles = [];
 
 function loadArticlesIntoMemory() {
+  if (!fs.existsSync(datasetPath)) {
+    console.warn(
+      '[Dataset] Optional nyt_embeddings.json not found; continuing without sample articles.',
+    );
+    return;
+  }
+
   try {
     const raw = fs.readFileSync(datasetPath, 'utf-8');
     const parsed = JSON.parse(raw);

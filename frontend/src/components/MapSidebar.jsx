@@ -9,6 +9,9 @@ function MapSidebar({
   hoveredNode,
   uploadResult,
   mappedArticles = [],
+  facultyMembers = [],
+  facultyLoading = false,
+  facultyError = '',
   onUpload,
   onClearUpload,
   onFineClusterClick,
@@ -34,6 +37,40 @@ function MapSidebar({
           onCite={onGenerateCitation}
           citationState={citationState}
         />
+      )}
+
+      {selectedFineCluster && (
+        <div className="faculty-section">
+          <h3>Faculty working on "{selectedFineCluster.label}"</h3>
+          {facultyLoading && (
+            <p className="muted">Searching UVA faculty directory…</p>
+          )}
+          {!facultyLoading && facultyError && (
+            <p className="error-text">{facultyError}</p>
+          )}
+          {!facultyLoading &&
+            !facultyError &&
+            facultyMembers.length === 0 && (
+              <p className="muted">
+                No matching faculty found for this topic yet.
+              </p>
+            )}
+          {!facultyLoading && !facultyError && facultyMembers.length > 0 && (
+            <ul className="faculty-list">
+              {facultyMembers.slice(0, 6).map((member) => (
+                <li key={`${member.name}-${member.email}`} className="faculty-member">
+                  <div className="headline">{member.name || 'Unnamed faculty'}</div>
+                  {member.department && (
+                    <div className="meta">{member.department}</div>
+                  )}
+                  {member.email && (
+                    <a href={`mailto:${member.email}`}>{member.email}</a>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
 
       {!selectedFineCluster && showUploadArticles && (

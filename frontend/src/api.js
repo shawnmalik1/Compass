@@ -72,3 +72,14 @@ export async function createCitation(article = {}) {
   if (!res.ok) throw new Error("Citation generation failed");
   return res.json();
 }
+
+export async function fetchFaculty(keyword) {
+  const query = (keyword || "").trim();
+  if (!query) {
+    return [];
+  }
+  const params = new URLSearchParams({ q: query });
+  const res = await fetch(`${API_BASE}/faculty?${params.toString()}`);
+  if (!res.ok) throw new Error("Faculty lookup failed");
+  return res.json();
+}

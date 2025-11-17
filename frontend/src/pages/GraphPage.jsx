@@ -18,6 +18,7 @@ import {
   fetchFineCluster,
   uploadText as uploadMapText,
   createCitation,
+  fetchFaculty,
 } from '../api.js';
 import { normalizeArticles } from '../utils/articles.js';
 
@@ -173,6 +174,9 @@ function GraphPage() {
     loading: false,
     error: null,
   });
+  const [facultyMembers, setFacultyMembers] = useState([]);
+  const [facultyLoading, setFacultyLoading] = useState(false);
+  const [facultyError, setFacultyError] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -200,6 +204,40 @@ function GraphPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const label = selectedFineCluster?.label?.trim();
+    if (!label) {
+      setFacultyMembers([]);
+      setFacultyError('');
+      setFacultyLoading(false);
+      return undefined;
+    }
+    const loadFaculty = async () => {
+      setFacultyLoading(true);
+      setFacultyError('');
+      try {
+        const response = await fetchFaculty(label);
+        if (!cancelled) {
+          setFacultyMembers(response || []);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setFacultyMembers([]);
+          setFacultyError(err.message || 'Failed to fetch faculty data.');
+        }
+      } finally {
+        if (!cancelled) {
+          setFacultyLoading(false);
+        }
+      }
+    };
+    loadFaculty();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedFineCluster]);
 
   const documentNode = useMemo(
     () =>
@@ -690,6 +728,9 @@ function GraphPage() {
               hoveredNode={hoveredNode}
               uploadResult={uploadResult}
               mappedArticles={uploadNeighbors}
+              facultyMembers={facultyMembers}
+              facultyLoading={facultyLoading}
+              facultyError={facultyError}
               onUpload={handleUpload}
               onClearUpload={handleClearUpload}
               onFineClusterClick={handleFineClusterClick}

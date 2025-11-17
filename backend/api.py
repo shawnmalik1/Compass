@@ -14,6 +14,7 @@ from openai import OpenAI
 from dotenv import load_dotenv
 
 from config import DATA_DIR, EMBEDDING_MODEL_NAME
+from faculty import scrape_faculty
 
 INDEX_PATH = DATA_DIR / "index.pkl"
 
@@ -214,6 +215,12 @@ class CitationRequest(BaseModel):
 
 class CitationResponse(BaseModel):
     citation: str
+
+class FacultyMember(BaseModel):
+    name: str
+    department: Optional[str] = None
+    email: Optional[str] = None
+    keyword: Optional[str] = None
 
 
 @app.get("/api/map", response_model=MapResponse)
@@ -457,3 +464,16 @@ def _generate_citation(req: CitationRequest) -> str:
 def create_citation(req: CitationRequest):
     citation = _generate_citation(req)
     return CitationResponse(citation=citation)
+
+
+@app.get("/api/faculty", response_model=List[FacultyMember])
+def get_faculty(q: str, pages: int = 1):
+    keywords = [kw.strip() for kw in q.split(",") if kw.strip()]
+    if not keywords:
+        raise HTTPException(status_code=400, detail="Keyword is required.")
+    max_pages = max(1, min(pages, 3))
+    try:
+        results = scrape_faculty(keywords, max_pages=max_pages)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Failed to fetch faculty data.") from exc
+    return [FacultyMember(**row) for row in results]
