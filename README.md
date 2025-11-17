@@ -140,3 +140,8 @@ Tailwind (`src/styles/globals.css`) handles the overall shell, while `src/index.
 - The frontend normalizes article objects (section name, url, snippet) everywhere before handing them to Claude, react-force-graph, or the knowledge-map sidebar. That means both backends can evolve independently as long as they return the expected fields.
 
 Have fun combining the macro map with the micro react-force-graph view!
+
+
+
+.\.venv\Scripts\activate
+python -m uvicorn api:app --reload --port 8000

@@ -16,6 +16,41 @@ TIMEOUT = 10
 MAX_PAGES = 1
 EMAIL_DOMAIN = "@virginia.edu"
 
+TOPIC_HINTS = {
+    "ai": ["Computer Science", "Data Science Institute"],
+    "machine": ["Computer Science", "Electrical & Computer Engineering"],
+    "robot": ["Mechanical & Aerospace Engineering"],
+    "privacy": ["School of Law", "Computer Science"],
+    "policy": ["Batten School of Leadership & Public Policy"],
+    "economics": ["Economics"],
+    "finance": ["McIntire School of Commerce"],
+    "climate": ["Environmental Sciences", "Global Studies"],
+    "energy": ["Engineering Systems and Environment"],
+    "health": ["School of Medicine"],
+    "medicine": ["School of Medicine"],
+    "nursing": ["School of Nursing"],
+    "education": ["School of Education & Human Development"],
+    "history": ["History"],
+    "biology": ["Biology"],
+    "chemistry": ["Chemistry"],
+    "physics": ["Physics"],
+    "law": ["School of Law"],
+    "media": ["Media Studies"],
+    "ethics": ["Religious Studies", "Philosophy"],
+    "security": ["Computer Science", "Politics"],
+    "global": ["Global Studies"],
+    "sustainability": ["Environmental Sciences"],
+}
+
+FALLBACK_TERMS = [
+    "Engineering",
+    "Computer Science",
+    "Data Science Institute",
+    "School of Law",
+    "Batten School of Leadership & Public Policy",
+    "School of Medicine",
+]
+
 
 def _clean_string(value: str) -> str:
     return (value or "").strip()
@@ -64,6 +99,20 @@ def _scrape_keyword(keyword: str, max_pages: int) -> List[Dict[str, str]]:
     return rows
 
 
+def _expand_terms(keyword: str) -> List[str]:
+    lowered = keyword.lower()
+    terms: List[str] = []
+    for hint, replacements in TOPIC_HINTS.items():
+        if hint in lowered:
+            terms.extend(replacements)
+    tokens = re.split(r"[^a-z0-9]+", lowered)
+    for token in tokens:
+        terms.extend(TOPIC_HINTS.get(token, []))
+    if not terms and keyword:
+        terms.append(keyword)
+    return terms
+
+
 @lru_cache(maxsize=64)
 def _cached_scrape(key: str, max_pages: int) -> List[Dict[str, str]]:
     keywords = [kw.strip() for kw in key.split("|") if kw.strip()]
@@ -81,5 +130,22 @@ def scrape_faculty(keywords: List[str], max_pages: int = MAX_PAGES) -> List[Dict
     cleaned = [kw.strip() for kw in keywords if kw and kw.strip()]
     if not cleaned:
         return []
-    key = "|".join(sorted(cleaned))[:200]
-    return _cached_scrape(key, max_pages)
+    search_terms: List[str] = []
+    for kw in cleaned:
+        search_terms.extend(_expand_terms(kw))
+    if not search_terms:
+        search_terms = FALLBACK_TERMS[:]
+    unique_terms = []
+    seen = set()
+    for term in search_terms:
+        normalized = term.lower()
+        if normalized not in seen:
+            unique_terms.append(term)
+            seen.add(normalized)
+    key = "|".join(unique_terms[:10])[:400]
+    results = _cached_scrape(key, max_pages)
+    if results:
+        return results
+    # fallback to generic departments if nothing returned
+    fallback_key = "|".join(FALLBACK_TERMS[:5])
+    return _cached_scrape(fallback_key, max_pages)

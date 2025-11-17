@@ -174,7 +174,7 @@ function UploadPage() {
                   Scrape Google
                 </p>
                 <p className="text-xs text-slate-400">
-                  Pretend scraper runs indefinitely until cancelled.
+                  Scraper runs indefinitely until cancelled.
                 </p>
               </div>
               <button
