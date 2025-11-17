@@ -69,9 +69,9 @@ pip install -r requirements.txt
 python build_index.py            # one-time: builds embeddings, clusters, & 2D layout
 uvicorn api:app --reload --port 8000
 ```
-**Note:** Set `OPENAI_API_KEY` in your environment (or a `.env`) before running `build_index.py` or the API to enable AI naming + citation generation. If the key is missing, the app falls back to heuristic labels and manual citations.
+**Note:** Set both `OPENAI_API_KEY` and `API_ACCESS_TOKEN` in your environment (or a `.env`) before running `build_index.py` or the API. The OpenAI key enables AI naming + citation generation; the shared access token locks down every `/api/*` route (clients must send it via `X-Compass-Key`). Optional rate-limiting knobs (`FACULTY_RATE_LIMIT`, `UPLOAD_RATE_LIMIT`, `CITATION_RATE_LIMIT`, etc.) are also read from the environment. If the OpenAI key is missing, the app falls back to heuristic labels and manual citations.
 
-`build_index.py` expects the Kaggle NYT CSV + embeddings referenced in `config.py`. It creates `backend/data/index.pkl`, which FastAPI loads on startup to serve:
+`build_index.py` expects the Kaggle NYT CSV + embeddings referenced in `config.py`. It creates `backend/data/index.pkl`, which FastAPI loads on startup to serve (endpoints honor `API_ACCESS_TOKEN` + rate limits configured via `FACULTY_RATE_LIMIT`, `UPLOAD_RATE_LIMIT`, `CITATION_RATE_LIMIT`, etc.):
 
 - `GET /api/map` - coarse/fine cluster geometry + bounds
 - `GET /api/fine_cluster/:id` - fine cluster metadata + article coordinates
@@ -100,9 +100,11 @@ Key routes:
 
 Utilities in `backend/scripts/` help trim or reformat the NYT CSV so the Python side stays fast.
 
+> **Rate limiting:** `/upload` and `/analyze` automatically enforce `NODE_UPLOAD_RATE_LIMIT` / `NODE_ANALYZE_RATE_LIMIT` (defaults 10 requests per 60s). Excess calls receive HTTP 429 responses.
+
 **Note:**
 
- Set `OPENAI_API_KEY` in your environment (or a `.env`) before running `build_index.py` or the API to enable AI naming + citation generation. If the key is missing, the app falls back to heuristic labels and manual citations.
+ Set `OPENAI_API_KEY` and `API_ACCESS_TOKEN` in your environment (or a `.env`) before running `build_index.py` or the API. Configure the frontend with `VITE_COMPASS_TOKEN` so every request sends the matching `X-Compass-Key` header. If the OpenAI key is missing, the app falls back to heuristic labels and manual citations.
 
 
 ## Frontend

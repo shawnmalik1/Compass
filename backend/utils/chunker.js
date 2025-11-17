@@ -17,10 +17,6 @@ function chunkText(text, options = {}) {
   return chunks.filter(Boolean);
 }
 
-function stripBinary(text = '') {
-  return text.replace(/[^\x09\x0a\x0d\x20-\x7e]/g, ' ').replace(/\s+/g, ' ').trim();
-}
-
 async function extractTextFromBuffer(file) {
   if (!file) {
     throw new Error('Missing file');
@@ -29,22 +25,21 @@ async function extractTextFromBuffer(file) {
   const mime = file.mimetype || '';
 
   if (mime === 'application/pdf') {
-    try {
-      const parsed = await pdfParse(file.buffer);
-      if (parsed?.text?.trim()) {
-        return parsed.text;
-      }
-    } catch (err) {
-      console.warn('[Upload] Falling back to raw PDF text extraction:', err.message);
+    const parsed = await pdfParse(file.buffer);
+    if (!parsed?.text?.trim()) {
+      throw new Error('Unable to extract text from PDF');
     }
-    return stripBinary(file.buffer.toString('latin1'));
+    return parsed.text;
   }
 
-  return file.buffer.toString('utf-8');
+  if (mime === 'text/plain') {
+    return file.buffer.toString('utf-8');
+  }
+
+  throw new Error('Unsupported file type');
 }
 
 module.exports = {
   chunkText,
   extractTextFromBuffer,
-  stripBinary,
 };

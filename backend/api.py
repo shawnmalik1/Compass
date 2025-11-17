@@ -1,6 +1,8 @@
 import os
+import time
+from collections import deque, defaultdict
 from datetime import datetime
-from fastapi import FastAPI, Form, HTTPException
+from fastapi import FastAPI, Form, HTTPException, Header, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
@@ -27,6 +29,57 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def require_api_token(x_compass_key: Optional[str] = Header(default=None)):
+    if not API_ACCESS_TOKEN:
+        return
+    if x_compass_key != API_ACCESS_TOKEN:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+def _rate_limit(request: Request, key: str, limit: int, window: int, message: str):
+    if limit <= 0 or window <= 0:
+        return
+    host = request.client.host if request.client else "global"
+    bucket_key = f"{key}:{host}"
+    now = time.time()
+    bucket = _rate_buckets[bucket_key]
+    while bucket and now - bucket[0] > window:
+        bucket.popleft()
+    if len(bucket) >= limit:
+        raise HTTPException(status_code=429, detail=message)
+    bucket.append(now)
+
+
+def rate_limit_faculty(request: Request):
+    _rate_limit(
+        request,
+        "faculty",
+        FACULTY_RATE_LIMIT,
+        FACULTY_RATE_WINDOW,
+        "Too many faculty searches. Please wait a moment.",
+    )
+
+
+def rate_limit_upload(request: Request):
+    _rate_limit(
+        request,
+        "upload",
+        UPLOAD_RATE_LIMIT,
+        UPLOAD_RATE_WINDOW,
+        "Too many uploads. Please slow down.",
+    )
+
+
+def rate_limit_citation(request: Request):
+    _rate_limit(
+        request,
+        "citation",
+        CITATION_RATE_LIMIT,
+        CITATION_RATE_WINDOW,
+        "Too many citation requests. Please wait a moment.",
+    )
 
 
 def _clean_field(value):
@@ -79,6 +132,14 @@ fine_cluster_labels = index["fine_cluster_labels"]
 map_bounds = index["map_bounds"]
 
 load_dotenv()
+API_ACCESS_TOKEN = os.getenv("API_ACCESS_TOKEN")
+FACULTY_RATE_LIMIT = int(os.getenv("FACULTY_RATE_LIMIT", "10"))
+FACULTY_RATE_WINDOW = int(os.getenv("FACULTY_RATE_WINDOW", "60"))
+UPLOAD_RATE_LIMIT = int(os.getenv("UPLOAD_RATE_LIMIT", "10"))
+UPLOAD_RATE_WINDOW = int(os.getenv("UPLOAD_RATE_WINDOW", "60"))
+CITATION_RATE_LIMIT = int(os.getenv("CITATION_RATE_LIMIT", "20"))
+CITATION_RATE_WINDOW = int(os.getenv("CITATION_RATE_WINDOW", "60"))
+_rate_buckets = defaultdict(deque)
 embed_model = SentenceTransformer(EMBEDDING_MODEL_NAME)
 emb_norm = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -224,7 +285,7 @@ class FacultyMember(BaseModel):
 
 
 @app.get("/api/map", response_model=MapResponse)
-def get_map():
+def get_map(_: None = Depends(require_api_token)):
     return MapResponse(
         bounds=MapBounds(**map_bounds),
         coarse_clusters=[CoarseMapNode(**c) for c in coarse_clusters],
@@ -233,7 +294,7 @@ def get_map():
 
 
 @app.get("/api/fine_cluster/{fine_id}", response_model=FineClusterDetailResponse)
-def get_fine_cluster(fine_id: int):
+def get_fine_cluster(fine_id: int, _: None = Depends(require_api_token)):
     if fine_id < 0 or fine_id >= parent_fine_ids.shape[0]:
         raise HTTPException(status_code=404, detail="Fine cluster not found")
 
@@ -280,7 +341,7 @@ def get_fine_cluster(fine_id: int):
 
 
 @app.get("/api/search", response_model=SearchResults)
-def search_articles(q: str, k: int = 20):
+def search_articles(q: str, k: int = 20, _: None = Depends(require_api_token)):
     q_vec = embed_model.encode([q], normalize_embeddings=True)[0]
     sims = emb_norm @ q_vec
     top_idx = np.argsort(-sims)[:k]
@@ -311,7 +372,11 @@ def search_articles(q: str, k: int = 20):
 
 
 @app.post("/api/upload", response_model=UploadResult)
-async def upload_text(text: str = Form(...)):
+async def upload_text(
+    text: str = Form(...),
+    _: None = Depends(require_api_token),
+    __: None = Depends(rate_limit_upload),
+):
     q_vec = embed_model.encode([text], normalize_embeddings=True)[0]
     sims = emb_norm @ q_vec
     top_idx = np.argsort(-sims)[:10]
@@ -461,13 +526,22 @@ def _generate_citation(req: CitationRequest) -> str:
 
 
 @app.post("/api/citation", response_model=CitationResponse)
-def create_citation(req: CitationRequest):
+def create_citation(
+    req: CitationRequest,
+    _: None = Depends(require_api_token),
+    __: None = Depends(rate_limit_citation),
+):
     citation = _generate_citation(req)
     return CitationResponse(citation=citation)
 
 
 @app.get("/api/faculty", response_model=List[FacultyMember])
-def get_faculty(q: str, pages: int = 1):
+def get_faculty(
+    q: str,
+    pages: int = 1,
+    _: None = Depends(require_api_token),
+    __: None = Depends(rate_limit_faculty),
+):
     keywords = [kw.strip() for kw in q.split(",") if kw.strip()]
     if not keywords:
         raise HTTPException(status_code=400, detail="Keyword is required.")

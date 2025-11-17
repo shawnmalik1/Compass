@@ -34,6 +34,12 @@ router.post('/', upload.single('file'), async (req, res) => {
         return res.status(400).json({ error: 'Only PDF or plain text files are allowed.' });
       }
     }
+    if (err?.message?.includes('extract text')) {
+      return res.status(400).json({ error: 'Could not extract text from the uploaded PDF.' });
+    }
+    if (err?.message?.includes('Unsupported file type')) {
+      return res.status(400).json({ error: 'Only PDF or plain text files are allowed.' });
+    }
     console.error('[Upload] Failed to extract text:', err.message);
     res.status(500).json({ error: 'Unable to process file' });
   }

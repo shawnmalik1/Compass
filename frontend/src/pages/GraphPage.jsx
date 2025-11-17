@@ -314,6 +314,26 @@ function GraphPage() {
   }, [displayedArticles, selectedNode]);
 
   useEffect(() => {
+    const articleId =
+      selectedNode && selectedNode.type === 'article' ? selectedNode.id : null;
+    const hasAnalysis = articleId && nodeAnalyses[articleId];
+    if (hasAnalysis) {
+      if (
+        insightsSource?.type !== 'node' ||
+        insightsSource.articleId !== articleId
+      ) {
+        setInsightsSource({ type: 'node', articleId });
+        setInsightTab('overview');
+      }
+    } else if (
+      insightsSource?.type === 'node' &&
+      (!articleId || !nodeAnalyses[articleId])
+    ) {
+      setInsightsSource({ type: 'document' });
+    }
+  }, [selectedNode, nodeAnalyses, insightsSource]);
+
+  useEffect(() => {
     if (documentText || uploadedArticles.length || loadingFallback || fallbackArticles.length) {
       return;
     }
